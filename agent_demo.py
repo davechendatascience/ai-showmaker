@@ -1,6 +1,6 @@
 import os
-import subprocess
 import json
+from tools import *
 
 # Set your Gemini (Google) API key
 with open('secrets.json', 'r') as f:
@@ -14,30 +14,10 @@ from langchain.agents import initialize_agent, AgentType
 import paramiko
 
 # AWS EC2 SSH access configuration
-AWS_HOST = 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com'  # Replace with EC2 PUBLIC DNS/IP
-AWS_USER = 'ec2-user'  # or 'ec2-user' for Amazon Linux
-PEM_PATH = 'ai-showmaker.pem'  # Local path to your .pem file
+os.environ["AWS_HOST"] = 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com'  # Replace with EC2 PUBLIC DNS/IP
+os.environ["AWS_USER"] = 'ec2-user'  # or 'ec2-user' for Amazon Linux
+os.environ["PEM_PATH"] = 'ai-showmaker.pem'  # Local path to your .pem file
 
-# Example calculator tool
-def calculator_tool(input: str) -> str:
-    try:
-        return str(eval(input))
-    except Exception:
-        return "Error"
-
-def remote_command_tool(command: str) -> str:
-    try:
-        key = paramiko.Ed25519Key.from_private_key_file(PEM_PATH)
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname=AWS_HOST, username=AWS_USER, pkey=key)
-        stdin, stdout, stderr = ssh.exec_command(command)
-        output = stdout.read().decode() + stderr.read().decode()
-        ssh.close()
-        return output
-    except Exception as error:
-        return f"SSH Error: {error}"
-    
 def human_in_the_loop(task_description, agent, max_retries=3):
     current_task = task_description
     for attempt in range(max_retries):
@@ -52,6 +32,7 @@ def human_in_the_loop(task_description, agent, max_retries=3):
             feedback = input("Describe what's missing or what should be changed for the next attempt: ")
             # Chain feedback to the next agent prompt as explicit guidance
             current_task = (
+                f"task description: {task_description}\n"
                 f"Your previous attempt: {response}\n"
                 f"The user says: {feedback}\n"
                 f"Please try again, taking the feedback into account."
@@ -64,9 +45,13 @@ tools = [
     Tool(
         name="RemoteCommand",
         func=remote_command_tool,
-        description="Runs a shell command on the remote Amazon Linux with ssh."
+        description="Runs a shell command on the remote Amazon Linux with ssh. You are only ssh to the server, not actually in the server."
     ),
-    # Add other tools here if needed
+    Tool(
+        name="RemoteWriteFile",
+        func=remote_sftp_write_file_tool,
+        description="Write code to a file on the remote server. Input: JSON string '{{\"filename\": \"file.py\", \"code\": \"YOUR CODE\"}}'"
+    )
 ]
 
 system_message = "You are an expert assistant that tackles complex problems stepwise, calling tools when appropriate."
@@ -87,5 +72,5 @@ agent = initialize_agent(
 )
 
 # --- Usage Example ---
-query2 = "can you create a demo website and make sure that outside traffic can reach it, not just within the server?"
-final_response2 = human_in_the_loop(query2, agent)
+query = "can you create a stock analysis website and publish it through the web?"
+final_response = human_in_the_loop(query, agent)
