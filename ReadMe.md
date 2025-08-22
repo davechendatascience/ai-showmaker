@@ -2,4 +2,9 @@
 
 This simple project spun out of a thought to create a great tool to combine LLM completion capabilities with langchain's agent workflow.
 
-The work flow is very raw, so as time evolves
+## Tools
+✅ calculator tool
+✅ remote run command tool (works on amazon linux)
+
+## Other Functionalities
+✅ human in the loop

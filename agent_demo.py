@@ -11,10 +11,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import initialize_agent, AgentType
+import paramiko
 
-# Replace with your GCP instance name and zone
-INSTANCE_NAME = "instance-20250821-144622"
-ZONE = "us-central1-c"
+# AWS EC2 SSH access configuration
+AWS_HOST = 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com'  # Replace with EC2 PUBLIC DNS/IP
+AWS_USER = 'ec2-user'  # or 'ec2-user' for Amazon Linux
+PEM_PATH = 'ai-showmaker.pem'  # Local path to your .pem file
 
 # Example calculator tool
 def calculator_tool(input: str) -> str:
@@ -23,26 +25,46 @@ def calculator_tool(input: str) -> str:
     except Exception:
         return "Error"
 
-# Tool to run commands on the GCP Debian VM
 def remote_command_tool(command: str) -> str:
-    safe_command = '"' + command + '"'
-    gcloud_cmd = f'gcloud compute ssh {INSTANCE_NAME} --zone={ZONE} --command={safe_command}'
-    print(gcloud_cmd)
     try:
-        result = subprocess.run(gcloud_cmd, capture_output=True, text=True, shell=True)
-        if result.returncode == 0:
-            return result.stdout
-        else:
-            return result.stderr
+        key = paramiko.Ed25519Key.from_private_key_file(PEM_PATH)
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(hostname=AWS_HOST, username=AWS_USER, pkey=key)
+        stdin, stdout, stderr = ssh.exec_command(command)
+        output = stdout.read().decode() + stderr.read().decode()
+        ssh.close()
+        return output
     except Exception as error:
-        return str(error)
+        return f"SSH Error: {error}"
+    
+def human_in_the_loop(task_description, agent, max_retries=3):
+    current_task = task_description
+    for attempt in range(max_retries):
+        response = agent.run(current_task)
+        print(f"\nAgent Output:\n{response}")
+        confirm = input("Is the task completed as expected? (y/n): ").strip().lower()
+        if confirm == "y":
+            print("Task confirmed and marked as complete!\n")
+            return response
+        else:
+            print("Task NOT confirmed.")
+            feedback = input("Describe what's missing or what should be changed for the next attempt: ")
+            # Chain feedback to the next agent prompt as explicit guidance
+            current_task = (
+                f"Your previous attempt: {response}\n"
+                f"The user says: {feedback}\n"
+                f"Please try again, taking the feedback into account."
+            )
+    print("Max retries reached or user declined final confirmation.\n")
+    return None
 
 tools = [
     Tool(name="Calculator", func=calculator_tool, description="Calculates mathematical expressions."),
     Tool(
         name="RemoteCommand",
         func=remote_command_tool,
-        description="Runs a shell command on the remote GCP Debian VM via gcloud ssh."
+        description="Runs a shell command on the remote Amazon Linux with ssh."
     ),
     # Add other tools here if needed
 ]
@@ -64,11 +86,6 @@ agent = initialize_agent(
     verbose=True
 )
 
-# EXAMPLES
-query1 = "Calculate the average of 12, 45, and 22, then tell me the square root of that value."
-response1 = agent.run(query1)
-print(response1)
-
-query2 = "can you create a ollama rag app"
-response2 = agent.run(query2)
-print(response2)
+# --- Usage Example ---
+query2 = "can you create a demo website and make sure that outside traffic can reach it, not just within the server?"
+final_response2 = human_in_the_loop(query2, agent)
