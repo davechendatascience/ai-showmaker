@@ -4,6 +4,7 @@ This simple project spun out of a thought to create a great tool to combine LLM 
 
 ## Tools
 ✅ calculator tool
+
 ✅ remote run command tool (works on amazon linux)
 
 ## Other Functionalities
