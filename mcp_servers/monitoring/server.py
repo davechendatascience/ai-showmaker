@@ -187,7 +187,7 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         
         update_todo_tool = MCPTool(
             name="update_todo_status", 
-            description="Update todo item status as you complete each step. Call this when finishing todo items.",
+            description="Update todo item status. Required parameters: todo_id (string) and status (string: pending/in_progress/completed/failed)",
             parameters={
                 "type": "object",
                 "properties": {

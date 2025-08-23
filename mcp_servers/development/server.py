@@ -9,6 +9,8 @@ import os
 import json
 import subprocess
 import tempfile
+import platform
+import glob
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -360,53 +362,105 @@ class DevelopmentMCPServer(AIShowmakerMCPServer):
             return f"Git diff failed: {str(e)}"
     
     async def _find_files(self, pattern: str, directory: str = ".", file_type: str = "") -> str:
-        """Find files by pattern."""
+        """Find files by pattern using cross-platform approach."""
         try:
-            cmd = ["find", directory, "-name", pattern]
-            if file_type:
-                cmd.extend(["-name", f"*.{file_type}"])
+            if platform.system() == "Windows":
+                # Use Python's glob for cross-platform compatibility
+                search_pattern = os.path.join(directory, "**", pattern)
+                if file_type:
+                    search_pattern = os.path.join(directory, "**", f"*.{file_type}")
                 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode == 0:
-                files = result.stdout.strip()
-                return files if files else f"No files found matching pattern: {pattern}"
+                files = glob.glob(search_pattern, recursive=True)
+                
+                if files:
+                    # Convert to relative paths and sort
+                    relative_files = [os.path.relpath(f, directory) for f in files]
+                    return "\n".join(sorted(relative_files))
+                else:
+                    return f"No files found matching pattern: {pattern}"
             else:
-                return f"Find command failed: {result.stderr}"
+                # Use Unix find command on non-Windows systems
+                cmd = ["find", directory, "-name", pattern]
+                if file_type:
+                    cmd.extend(["-name", f"*.{file_type}"])
+                    
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                
+                if result.returncode == 0:
+                    files = result.stdout.strip()
+                    return files if files else f"No files found matching pattern: {pattern}"
+                else:
+                    return f"Find command failed: {result.stderr}"
                 
         except Exception as e:
             return f"File search failed: {str(e)}"
     
     async def _search_in_files(self, search_text: str, directory: str = ".", 
                              file_extension: str = "", case_sensitive: bool = False) -> str:
-        """Search for text within files."""
+        """Search for text within files using cross-platform approach."""
         try:
-            cmd = ["grep", "-r"]
-            if not case_sensitive:
-                cmd.append("-i")
-            cmd.extend(["-n", search_text, directory])
-            
-            if file_extension:
-                cmd.extend(["--include", f"*.{file_extension}"])
+            if platform.system() == "Windows":
+                # Use Python-based text search on Windows
+                results = []
+                search_dir = Path(directory)
                 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode == 0:
-                return result.stdout.strip()
-            elif result.returncode == 1:
-                return f"Text '{search_text}' not found in any files"
+                # Build file pattern
+                if file_extension:
+                    pattern = f"**/*.{file_extension}"
+                else:
+                    pattern = "**/*"
+                
+                # Search through files
+                for file_path in search_dir.glob(pattern):
+                    if file_path.is_file():
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                for line_num, line in enumerate(f, 1):
+                                    search_line = line if case_sensitive else line.lower()
+                                    search_target = search_text if case_sensitive else search_text.lower()
+                                    
+                                    if search_target in search_line:
+                                        relative_path = os.path.relpath(file_path, directory)
+                                        results.append(f"{relative_path}:{line_num}:{line.strip()}")
+                        except Exception:
+                            continue  # Skip files that can't be read
+                
+                if results:
+                    return "\n".join(results[:50])  # Limit to first 50 matches
+                else:
+                    return f"Text '{search_text}' not found in any files"
             else:
-                return f"Search failed: {result.stderr}"
+                # Use grep on Unix-like systems
+                cmd = ["grep", "-r"]
+                if not case_sensitive:
+                    cmd.append("-i")
+                cmd.extend(["-n", search_text, directory])
+                
+                if file_extension:
+                    cmd.extend(["--include", f"*.{file_extension}"])
+                    
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                elif result.returncode == 1:
+                    return f"Text '{search_text}' not found in any files"
+                else:
+                    return f"Search failed: {result.stderr}"
                 
         except Exception as e:
             return f"Text search failed: {str(e)}"
