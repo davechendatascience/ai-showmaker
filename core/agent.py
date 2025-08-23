@@ -71,6 +71,67 @@ class MCPServerManager:
             self.logger.error(f"Failed to initialize MCP servers: {str(e)}")
             raise AIShowmakerError(f"Server initialization failed: {str(e)}")
     
+    def _normalize_todos_parameter(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize todos parameter to expected format."""
+        try:
+            import json
+            
+            todos = arguments.get("todos")
+            if not todos:
+                return arguments
+            
+            # Handle different input formats
+            if isinstance(todos, str):
+                # Try to parse as JSON
+                try:
+                    todos = json.loads(todos)
+                except json.JSONDecodeError:
+                    # If not JSON, split by common delimiters and create simple todos
+                    if "," in todos:
+                        todo_items = [item.strip() for item in todos.split(",")]
+                    elif "\n" in todos:
+                        todo_items = [item.strip() for item in todos.split("\n")]
+                    else:
+                        todo_items = [todos.strip()]
+                    
+                    todos = []
+                    for item in todo_items:
+                        if item:
+                            todos.append({
+                                "content": item,
+                                "status": "pending",
+                                "activeForm": f"Working on {item.lower()}"
+                            })
+            
+            # Handle list of strings (convert to proper format)
+            if isinstance(todos, list) and todos:
+                normalized_todos = []
+                for item in todos:
+                    if isinstance(item, str):
+                        normalized_todos.append({
+                            "content": item,
+                            "status": "pending", 
+                            "activeForm": f"Working on {item.lower()}"
+                        })
+                    elif isinstance(item, dict):
+                        # Ensure required fields exist
+                        if "content" not in item:
+                            continue
+                        normalized_item = {
+                            "content": item.get("content", ""),
+                            "status": item.get("status", "pending"),
+                            "activeForm": item.get("activeForm", f"Working on {item.get('content', '').lower()}")
+                        }
+                        normalized_todos.append(normalized_item)
+                
+                arguments["todos"] = normalized_todos
+            
+            return arguments
+            
+        except Exception as e:
+            self.logger.error(f"Error normalizing todos parameter: {str(e)}")
+            return arguments
+    
     def _convert_mcp_tool_to_langchain(self, server_name: str, mcp_tool) -> Tool:
         """Convert an MCP tool to a LangChain tool."""
         
@@ -83,15 +144,29 @@ class MCPServerManager:
                     if isinstance(args[0], str):
                         try:
                             import json
+                            # Try to parse as JSON first
                             arguments = json.loads(args[0])
+                            
+                            # Special handling for monitoring server todos
+                            if mcp_tool.name == "create_todos" and "todos" in arguments:
+                                arguments = self._normalize_todos_parameter(arguments)
+                                
                         except json.JSONDecodeError:
                             # If not JSON, treat as single parameter
-                            param_name = list(mcp_tool.parameters.get('properties', {}).keys())[0]
-                            arguments = {param_name: args[0]}
+                            param_names = list(mcp_tool.parameters.get('properties', {}).keys())
+                            if param_names:
+                                param_name = param_names[0]
+                                arguments = {param_name: args[0]}
+                            else:
+                                arguments = {"input": args[0]}
                     else:
                         arguments = args[0]
+                        if mcp_tool.name == "create_todos" and "todos" in arguments:
+                            arguments = self._normalize_todos_parameter(arguments)
                 else:
                     arguments = kwargs
+                    if mcp_tool.name == "create_todos" and "todos" in arguments:
+                        arguments = self._normalize_todos_parameter(arguments)
                 
                 # Run the async MCP tool - handle existing event loop
                 try:

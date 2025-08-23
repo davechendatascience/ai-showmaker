@@ -154,21 +154,26 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         # Todo Management
         create_todos_tool = MCPTool(
             name="create_todos",
-            description="Create todo list for complex multi-step tasks to track progress and maintain context",
+            description="Create todo list for complex multi-step tasks to track progress and maintain context. Input: JSON with 'todos' array containing task objects with 'content', 'status' (default: 'pending'), and 'activeForm' (auto-generated if not provided). Can also accept simple string arrays.",
             parameters={
                 "type": "object",
                 "properties": {
                     "todos": {
                         "type": "array",
-                        "description": "List of todo items with content, status, and activeForm",
+                        "description": "List of todo items. Can be strings or objects with content/status/activeForm",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "content": {"type": "string", "description": "Task description"},
-                                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Task status"},
-                                "activeForm": {"type": "string", "description": "Present continuous form of the task"}
-                            },
-                            "required": ["content", "status", "activeForm"]
+                            "oneOf": [
+                                {"type": "string", "description": "Simple task description"},
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "content": {"type": "string", "description": "Task description"},
+                                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Task status", "default": "pending"},
+                                        "activeForm": {"type": "string", "description": "Present continuous form of the task"}
+                                    },
+                                    "required": ["content"]
+                                }
+                            ]
                         }
                     }
                 },
@@ -276,7 +281,7 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         self.logger.info(f"Created new session: {session_id}")
         return f"Created session '{session_id}'. Agent will now track progress and maintain context."
     
-    async def _create_todos(self, todos: List[Dict[str, Any]]) -> str:
+    async def _create_todos(self, todos: List[Any]) -> str:
         """Create todo list from provided items."""
         context = self._get_current_context()
         
@@ -284,19 +289,48 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         context.todo_items.clear()
         
         created_todos = []
-        for i, todo_data in enumerate(todos):
+        for i, todo_item_input in enumerate(todos):
             todo_id = f"todo_{i+1}"
+            
+            # Handle different input formats
+            if isinstance(todo_item_input, str):
+                # Simple string input
+                content = todo_item_input
+                status = TaskStatus.PENDING
+                active_form = f"Working on {content.lower()}"
+            elif isinstance(todo_item_input, dict):
+                # Dictionary input
+                content = todo_item_input.get('content', '')
+                if not content:
+                    self.logger.warning(f"Skipping todo item {i+1}: missing content")
+                    continue
+                    
+                status_str = todo_item_input.get('status', 'pending')
+                try:
+                    status = TaskStatus(status_str)
+                except ValueError:
+                    self.logger.warning(f"Invalid status '{status_str}' for todo {i+1}, using 'pending'")
+                    status = TaskStatus.PENDING
+                
+                active_form = todo_item_input.get('activeForm', f"Working on {content.lower()}")
+            else:
+                self.logger.warning(f"Skipping todo item {i+1}: unsupported format {type(todo_item_input)}")
+                continue
+            
             todo_item = TodoItem(
                 id=todo_id,
-                content=todo_data['content'],
-                status=TaskStatus(todo_data['status']),
-                active_form=todo_data['activeForm'],
+                content=content,
+                status=status,
+                active_form=active_form,
                 created_at=datetime.now().isoformat(),
                 updated_at=datetime.now().isoformat()
             )
             
             context.add_todo(todo_item)
             created_todos.append(f"{todo_id}: {todo_item.content} [{todo_item.status.value}]")
+        
+        if not created_todos:
+            return "No valid todo items were created. Please provide todos as strings or objects with 'content' field."
         
         result = f"Created {len(created_todos)} todo items:\n" + "\n".join(created_todos)
         self.logger.info(f"Created {len(created_todos)} todos for session {context.session_id}")
