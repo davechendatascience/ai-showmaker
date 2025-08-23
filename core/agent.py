@@ -290,14 +290,12 @@ You have access to four main categories of tools:
 3. Development tools - Git operations, file search, package management
 4. Monitoring tools - Todo list management, progress tracking, session management
 
-CRITICAL TODO USAGE RULES:
-- ALWAYS create a todo list for ANY task with 2+ steps using monitoring_create_todos
-- ALWAYS update todo status with monitoring_update_todo_status as you complete each step
-- ALWAYS use monitoring_get_current_todos to check progress when asked about status
-- Examples of multi-step tasks: building applications, deploying services, setting up environments, creating scripts with testing
-- Even simple tasks like "create and test a script" require todos: 1) create script, 2) test script
+TODO USAGE RULES:
+- For multi-step tasks (2+ steps): ALWAYS create todos with monitoring_create_todos first
+- Update status with monitoring_update_todo_status as you complete each step  
+- Use monitoring_get_current_todos to check progress
 
-WORKFLOW: Start every multi-step task by creating todos, then execute steps while updating status.
+WORKFLOW: Create todos → Execute steps → Update status
 
 Always use the appropriate tools to complete tasks. Be methodical and explain your actions.
 For interactive programs, use the remote server's execute_command tool with input_data parameter.
@@ -315,12 +313,15 @@ For interactive programs, use the remote server's execute_command tool with inpu
                 google_api_key=self.config.get('google_api_key')
             )
             
-            # Create the agent
+            # Create the agent with error handling
             self.agent = initialize_agent(
                 tools,
                 chat,
                 agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                verbose=True
+                verbose=True,
+                handle_parsing_errors=True,
+                max_iterations=5,
+                early_stopping_method="generate"
             )
             
             self.logger.info(f"AI-Showmaker Agent initialized with {len(tools)} tools")
@@ -344,9 +345,9 @@ For interactive programs, use the remote server's execute_command tool with inpu
         # Check for explicit step indicators
         has_steps = any(indicator in query_lower for indicator in ['step', 'then', 'and', 'after', '1)', '2)', '3)'])
         
-        # If likely multi-step, add explicit todo instruction
+        # If likely multi-step, add simple todo reminder
         if has_multi_step or has_steps:
-            return f"{query}\n\nIMPORTANT: Since this is a multi-step task, start by creating a todo list to track your progress."
+            return f"{query}\n\nNote: Create a todo list first if this has multiple steps."
         
         return query
     
