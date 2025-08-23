@@ -71,6 +71,67 @@ class MCPServerManager:
             self.logger.error(f"Failed to initialize MCP servers: {str(e)}")
             raise AIShowmakerError(f"Server initialization failed: {str(e)}")
     
+    def _normalize_todos_parameter(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize todos parameter to expected format."""
+        try:
+            import json
+            
+            todos = arguments.get("todos")
+            if not todos:
+                return arguments
+            
+            # Handle different input formats
+            if isinstance(todos, str):
+                # Try to parse as JSON
+                try:
+                    todos = json.loads(todos)
+                except json.JSONDecodeError:
+                    # If not JSON, split by common delimiters and create simple todos
+                    if "," in todos:
+                        todo_items = [item.strip() for item in todos.split(",")]
+                    elif "\n" in todos:
+                        todo_items = [item.strip() for item in todos.split("\n")]
+                    else:
+                        todo_items = [todos.strip()]
+                    
+                    todos = []
+                    for item in todo_items:
+                        if item:
+                            todos.append({
+                                "content": item,
+                                "status": "pending",
+                                "activeForm": f"Working on {item.lower()}"
+                            })
+            
+            # Handle list of strings (convert to proper format)
+            if isinstance(todos, list) and todos:
+                normalized_todos = []
+                for item in todos:
+                    if isinstance(item, str):
+                        normalized_todos.append({
+                            "content": item,
+                            "status": "pending", 
+                            "activeForm": f"Working on {item.lower()}"
+                        })
+                    elif isinstance(item, dict):
+                        # Ensure required fields exist
+                        if "content" not in item:
+                            continue
+                        normalized_item = {
+                            "content": item.get("content", ""),
+                            "status": item.get("status", "pending"),
+                            "activeForm": item.get("activeForm", f"Working on {item.get('content', '').lower()}")
+                        }
+                        normalized_todos.append(normalized_item)
+                
+                arguments["todos"] = normalized_todos
+            
+            return arguments
+            
+        except Exception as e:
+            self.logger.error(f"Error normalizing todos parameter: {str(e)}")
+            return arguments
+    
     def _convert_mcp_tool_to_langchain(self, server_name: str, mcp_tool) -> Tool:
         """Convert an MCP tool to a LangChain tool."""
         
@@ -83,15 +144,29 @@ class MCPServerManager:
                     if isinstance(args[0], str):
                         try:
                             import json
+                            # Try to parse as JSON first
                             arguments = json.loads(args[0])
+                            
+                            # Special handling for monitoring server todos
+                            if mcp_tool.name == "create_todos" and "todos" in arguments:
+                                arguments = self._normalize_todos_parameter(arguments)
+                                
                         except json.JSONDecodeError:
                             # If not JSON, treat as single parameter
-                            param_name = list(mcp_tool.parameters.get('properties', {}).keys())[0]
-                            arguments = {param_name: args[0]}
+                            param_names = list(mcp_tool.parameters.get('properties', {}).keys())
+                            if param_names:
+                                param_name = param_names[0]
+                                arguments = {param_name: args[0]}
+                            else:
+                                arguments = {"input": args[0]}
                     else:
                         arguments = args[0]
+                        if mcp_tool.name == "create_todos" and "todos" in arguments:
+                            arguments = self._normalize_todos_parameter(arguments)
                 else:
                     arguments = kwargs
+                    if mcp_tool.name == "create_todos" and "todos" in arguments:
+                        arguments = self._normalize_todos_parameter(arguments)
                 
                 # Run the async MCP tool - handle existing event loop
                 try:
@@ -215,7 +290,12 @@ You have access to four main categories of tools:
 3. Development tools - Git operations, file search, package management
 4. Monitoring tools - Todo list management, progress tracking, session management
 
-IMPORTANT: For complex multi-step tasks, ALWAYS create a todo list using monitoring_create_todos to track progress and maintain context. Update todo status as you complete each step. This helps both you and the user understand progress.
+TODO USAGE RULES:
+- For multi-step tasks (2+ steps): ALWAYS create todos with monitoring_create_todos first
+- Update status with monitoring_update_todo_status as you complete each step  
+- Use monitoring_get_current_todos to check progress
+
+WORKFLOW: Create todos → Execute steps → Update status
 
 Always use the appropriate tools to complete tasks. Be methodical and explain your actions.
 For interactive programs, use the remote server's execute_command tool with input_data parameter.
@@ -233,12 +313,15 @@ For interactive programs, use the remote server's execute_command tool with inpu
                 google_api_key=self.config.get('google_api_key')
             )
             
-            # Create the agent
+            # Create the agent with error handling
             self.agent = initialize_agent(
                 tools,
                 chat,
                 agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                verbose=True
+                verbose=True,
+                handle_parsing_errors=True,
+                max_iterations=5,
+                early_stopping_method="generate"
             )
             
             self.logger.info(f"AI-Showmaker Agent initialized with {len(tools)} tools")
@@ -246,6 +329,27 @@ For interactive programs, use the remote server's execute_command tool with inpu
         except Exception as e:
             self.logger.error(f"Agent initialization failed: {str(e)}")
             raise AIShowmakerError(f"Agent initialization failed: {str(e)}")
+    
+    def _enhance_query_for_todos(self, query: str) -> str:
+        """Enhance query to trigger todo usage for multi-step tasks."""
+        # Keywords that indicate multi-step tasks
+        multi_step_keywords = [
+            'build', 'create', 'develop', 'implement', 'deploy', 'setup', 'install',
+            'configure', 'test', 'write', 'make', 'design', 'plan', 'execute'
+        ]
+        
+        # Check if query contains multi-step indicators
+        query_lower = query.lower()
+        has_multi_step = any(keyword in query_lower for keyword in multi_step_keywords)
+        
+        # Check for explicit step indicators
+        has_steps = any(indicator in query_lower for indicator in ['step', 'then', 'and', 'after', '1)', '2)', '3)'])
+        
+        # If likely multi-step, add simple todo reminder
+        if has_multi_step or has_steps:
+            return f"{query}\n\nNote: Create a todo list first if this has multiple steps."
+        
+        return query
     
     def run(self, query: str) -> str:
         """Execute a query using the agent."""
@@ -255,7 +359,10 @@ For interactive programs, use the remote server's execute_command tool with inpu
         try:
             self.stats['total_queries'] += 1
             
-            result = self.agent.run(query)
+            # Enhance query to encourage todo usage
+            enhanced_query = self._enhance_query_for_todos(query)
+            
+            result = self.agent.run(enhanced_query)
             
             self.stats['successful_queries'] += 1
             self.logger.info(f"Query executed successfully: {query[:50]}...")
