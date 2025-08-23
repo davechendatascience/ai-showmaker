@@ -1,11 +1,10 @@
 import os
-import json
 from tools import *
+from config import get_config
 
-# Set your Gemini (Google) API key
-with open('secrets.json', 'r') as f:
-    secrets = json.load(f)
-os.environ["GOOGLE_API_KEY"] = secrets["GOOGLE_API_KEY"]
+# Load configuration
+config = get_config()
+os.environ["GOOGLE_API_KEY"] = config['google_api_key']
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import Tool
@@ -14,9 +13,9 @@ from langchain.agents import initialize_agent, AgentType
 import paramiko
 
 # AWS EC2 SSH access configuration
-os.environ["AWS_HOST"] = 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com'  # Replace with EC2 PUBLIC DNS/IP
-os.environ["AWS_USER"] = 'ec2-user'  # or 'ec2-user' for Amazon Linux
-os.environ["PEM_PATH"] = 'ai-showmaker.pem'  # Local path to your .pem file
+os.environ["AWS_HOST"] = config['aws_host']
+os.environ["AWS_USER"] = config['aws_user']
+os.environ["PEM_PATH"] = config['pem_path']
 
 def human_in_the_loop(task_description, agent, max_retries=3):
     current_task = task_description
@@ -41,16 +40,16 @@ def human_in_the_loop(task_description, agent, max_retries=3):
     return None
 
 tools = [
-    Tool(name="Calculator", func=calculator_tool, description="Calculates mathematical expressions."),
+    Tool(name="Calculator", func=calculator_tool, description="Advanced mathematical calculator supporting arithmetic, trigonometry, logarithms, factorials, variables, and complex expressions. Use for any mathematical computation including scientific functions."),
     Tool(
         name="RemoteCommand",
-        func=remote_command_tool,
-        description="Runs a shell command on the remote Amazon Linux with ssh. You are only ssh to the server, not actually in the server."
+        func=smart_remote_command_tool,
+        description="Execute commands on the remote server. Input: JSON string. For regular commands: '{{\"command\": \"ls -la\"}}'. For interactive programs that need user input: '{{\"command\": \"python3 script.py\", \"input_data\": \"input1\\\\ninput2\"}}'. Automatically handles both types."
     ),
     Tool(
         name="RemoteWriteFile",
         func=remote_sftp_write_file_tool,
-        description="Write code to a file on the remote server. Input: JSON string '{{\"filename\": \"file.py\", \"code\": \"YOUR CODE\"}}'"
+        description="Write code to a file on the remote server via SFTP. Input: JSON string '{{\"filename\": \"file.py\", \"code\": \"YOUR CODE\"}}'"
     )
 ]
 
@@ -72,5 +71,8 @@ agent = initialize_agent(
 )
 
 # --- Usage Example ---
-query = "can you create a stock analysis website and publish it through the web?"
-final_response = human_in_the_loop(query, agent)
+query = "can you take the 3 to the power of 2?"
+response = human_in_the_loop(query, agent)
+
+query = "can you create an art gallary and publish it through the web?"
+response = human_in_the_loop(query, agent)
