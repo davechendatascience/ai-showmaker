@@ -290,7 +290,14 @@ You have access to four main categories of tools:
 3. Development tools - Git operations, file search, package management
 4. Monitoring tools - Todo list management, progress tracking, session management
 
-IMPORTANT: For complex multi-step tasks, ALWAYS create a todo list using monitoring_create_todos to track progress and maintain context. Update todo status as you complete each step. This helps both you and the user understand progress.
+CRITICAL TODO USAGE RULES:
+- ALWAYS create a todo list for ANY task with 2+ steps using monitoring_create_todos
+- ALWAYS update todo status with monitoring_update_todo_status as you complete each step
+- ALWAYS use monitoring_get_current_todos to check progress when asked about status
+- Examples of multi-step tasks: building applications, deploying services, setting up environments, creating scripts with testing
+- Even simple tasks like "create and test a script" require todos: 1) create script, 2) test script
+
+WORKFLOW: Start every multi-step task by creating todos, then execute steps while updating status.
 
 Always use the appropriate tools to complete tasks. Be methodical and explain your actions.
 For interactive programs, use the remote server's execute_command tool with input_data parameter.
@@ -322,6 +329,27 @@ For interactive programs, use the remote server's execute_command tool with inpu
             self.logger.error(f"Agent initialization failed: {str(e)}")
             raise AIShowmakerError(f"Agent initialization failed: {str(e)}")
     
+    def _enhance_query_for_todos(self, query: str) -> str:
+        """Enhance query to trigger todo usage for multi-step tasks."""
+        # Keywords that indicate multi-step tasks
+        multi_step_keywords = [
+            'build', 'create', 'develop', 'implement', 'deploy', 'setup', 'install',
+            'configure', 'test', 'write', 'make', 'design', 'plan', 'execute'
+        ]
+        
+        # Check if query contains multi-step indicators
+        query_lower = query.lower()
+        has_multi_step = any(keyword in query_lower for keyword in multi_step_keywords)
+        
+        # Check for explicit step indicators
+        has_steps = any(indicator in query_lower for indicator in ['step', 'then', 'and', 'after', '1)', '2)', '3)'])
+        
+        # If likely multi-step, add explicit todo instruction
+        if has_multi_step or has_steps:
+            return f"{query}\n\nIMPORTANT: Since this is a multi-step task, start by creating a todo list to track your progress."
+        
+        return query
+    
     def run(self, query: str) -> str:
         """Execute a query using the agent."""
         if not self.agent:
@@ -330,7 +358,10 @@ For interactive programs, use the remote server's execute_command tool with inpu
         try:
             self.stats['total_queries'] += 1
             
-            result = self.agent.run(query)
+            # Enhance query to encourage todo usage
+            enhanced_query = self._enhance_query_for_todos(query)
+            
+            result = self.agent.run(enhanced_query)
             
             self.stats['successful_queries'] += 1
             self.logger.info(f"Query executed successfully: {query[:50]}...")

@@ -154,7 +154,7 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         # Todo Management
         create_todos_tool = MCPTool(
             name="create_todos",
-            description="Create todo list for complex multi-step tasks to track progress and maintain context. Input: JSON with 'todos' array containing task objects with 'content', 'status' (default: 'pending'), and 'activeForm' (auto-generated if not provided). Can also accept simple string arrays.",
+            description="CRITICAL: ALWAYS use this for ANY multi-step task (2+ steps). Create todo list to track progress and ensure nothing is missed. Required for: building apps, creating scripts, deploying services, setting up environments. Input: JSON with 'todos' array or simple string array.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -187,7 +187,7 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         
         update_todo_tool = MCPTool(
             name="update_todo_status", 
-            description="Update the status of a specific todo item to track progress",
+            description="REQUIRED: Update todo item status as you complete each step. ALWAYS call this when finishing a todo item to track progress properly.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -216,7 +216,7 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         
         get_todos_tool = MCPTool(
             name="get_current_todos",
-            description="Get current todo list to see what tasks are pending or in progress",
+            description="Get current todo list to check progress. Use this when user asks about status or when you need to see what's left to do.",
             parameters={
                 "type": "object",
                 "properties": {

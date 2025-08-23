@@ -64,19 +64,45 @@ class AgentTodoTester:
         """
         
         try:
+            # Get monitoring server to track tool calls
+            monitoring_server = self.agent.server_manager.servers.get('monitoring')
+            
+            if not monitoring_server:
+                print("❌ No monitoring server found")
+                return False
+            
+            # Track initial state
+            initial_contexts = len(monitoring_server.contexts)
+            
             # Execute the complex task
             result = self.agent.run(complex_task)
             print(f"✅ Complex task executed")
             
-            # Check if todos were created by looking at monitoring server
-            # This would require access to the monitoring server's state
-            # For now, we'll check if the agent mentioned todos in its response
-            todo_keywords = ['todo', 'task', 'step', 'progress', 'tracking']
-            if any(keyword in result.lower() for keyword in todo_keywords):
-                print("✅ Agent appears to have used todo functionality")
+            # Check if todos were actually created by examining server state
+            final_contexts = len(monitoring_server.contexts)
+            todos_created = False
+            
+            if final_contexts > initial_contexts:
+                # Check if any context has todos
+                for context in monitoring_server.contexts.values():
+                    if len(context.todo_items) > 0:
+                        print(f"✅ Found {len(context.todo_items)} todos in session {context.session_id}")
+                        todos_created = True
+                        break
+            
+            # Also check tool execution metrics
+            tool_calls = monitoring_server.get_server_info().get('tool_executions', {})
+            create_todos_calls = tool_calls.get('create_todos', 0)
+            
+            if create_todos_calls > 0:
+                print(f"✅ Agent called create_todos {create_todos_calls} times")
+                todos_created = True
+            
+            if todos_created:
+                print("✅ Agent successfully used todo functionality")
                 return True
             else:
-                print("❌ Agent may not have used todo functionality")
+                print("❌ Agent did not use todo functionality")
                 return False
                 
         except Exception as e:
@@ -93,12 +119,30 @@ class AgentTodoTester:
             result = self.agent.run(explicit_todo_task)
             print(f"✅ Explicit todo task executed")
             
-            # Check if result contains todo-related content
-            if 'todo' in result.lower() and ('created' in result.lower() or 'list' in result.lower()):
-                print("✅ Agent successfully used todo functionality")
+            # Get monitoring server to track tool calls
+            monitoring_server = self.agent.server_manager.servers.get('monitoring')
+            
+            if not monitoring_server:
+                print("❌ No monitoring server found")
+                return False
+            
+            # Check if todos were actually created by examining server state
+            todos_found = 0
+            for context in monitoring_server.contexts.values():
+                todos_found += len(context.todo_items)
+            
+            # Also check tool execution metrics
+            tool_calls = monitoring_server.get_server_info().get('tool_executions', {})
+            create_todos_calls = tool_calls.get('create_todos', 0)
+            
+            if todos_found >= 4:  # Should have at least 4 todos (install, configure, setup, run)
+                print(f"✅ Agent created {todos_found} todos as expected")
+                return True
+            elif create_todos_calls > 0:
+                print(f"✅ Agent called create_todos {create_todos_calls} times")
                 return True
             else:
-                print("❌ Agent did not properly use todo functionality")
+                print(f"❌ Expected todos created, but found {todos_found} todos and {create_todos_calls} create_todos calls")
                 return False
                 
         except Exception as e:
@@ -121,12 +165,23 @@ class AgentTodoTester:
             result2 = self.agent.run(progress_task)
             print("✅ Progress check completed")
             
-            # Check if we got meaningful progress information
-            if 'todo' in result2.lower() and ('progress' in result2.lower() or 'status' in result2.lower()):
-                print("✅ Agent successfully tracked todo progress")
+            # Get monitoring server to check actual progress tracking
+            monitoring_server = self.agent.server_manager.servers.get('monitoring')
+            
+            if not monitoring_server:
+                print("❌ No monitoring server found")
+                return False
+            
+            # Check if get_current_todos or get_progress_summary was called
+            tool_calls = monitoring_server.get_server_info().get('tool_executions', {})
+            get_todos_calls = tool_calls.get('get_current_todos', 0)
+            get_progress_calls = tool_calls.get('get_progress_summary', 0)
+            
+            if get_todos_calls > 0 or get_progress_calls > 0:
+                print(f"✅ Agent tracked progress (get_todos: {get_todos_calls}, get_progress: {get_progress_calls})")
                 return True
             else:
-                print("❌ Agent did not properly track todo progress")
+                print("❌ Agent did not use progress tracking tools")
                 return False
                 
         except Exception as e:
