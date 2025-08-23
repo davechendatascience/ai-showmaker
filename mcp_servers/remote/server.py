@@ -110,7 +110,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register command execution tool
         execute_command_tool = MCPTool(
             name="execute_command",
-            description="Execute commands on remote server supporting both regular and interactive programs",
+            description="Execute commands on remote server. Required parameter: command (string). Optional: input_data (string for interactive programs)",
             parameters={
                 "type": "object",
                 "properties": {
@@ -135,7 +135,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file writing tool
         write_file_tool = MCPTool(
             name="write_file", 
-            description="Write files to remote server via SFTP with security validation",
+            description="Write files to remote server via SFTP. Required parameters: filename (string) and content (string)",
             parameters={
                 "type": "object",
                 "properties": {
@@ -159,7 +159,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file reading tool
         read_file_tool = MCPTool(
             name="read_file",
-            description="Read file content from remote server via SFTP", 
+            description="Read file content from remote server via SFTP. Required parameter: filename (string)", 
             parameters={
                 "type": "object",
                 "properties": {
@@ -179,7 +179,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register directory listing tool
         list_directory_tool = MCPTool(
             name="list_directory",
-            description="List contents of directory on remote server",
+            description="List contents of directory on remote server. Optional parameter: path (string, defaults to current directory)",
             parameters={
                 "type": "object", 
                 "properties": {

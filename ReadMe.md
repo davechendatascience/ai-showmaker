@@ -118,6 +118,87 @@ ai-showmaker/
 └── 🎮 demo_mcp.py       # Interactive demonstrations
 ```
 
+## ⚙️ Configuration
+
+Choose one of these configuration approaches (priority order):
+
+**Option 1: Environment Variables (Production)**
+```bash
+export GOOGLE_API_KEY="your-api-key-here"
+export AWS_HOST="your-ec2-host"
+export AWS_USER="ec2-user"
+export PEM_PATH="secrets/your-key.pem"
+```
+
+**Option 2: .env file (Development)**
+```bash
+cp .env.example .env
+# Edit .env with your configuration values
+```
+
+**Option 3: JSON Configuration (Flexible)**
+```json
+{
+  "google_api_key": "your-api-key",
+  "aws_host": "your-ec2-host",
+  "aws_user": "ec2-user",
+  "pem_path": "secrets/your-key.pem"
+}
+```
+
+## 🧪 Running Tests
+
+**Windows (with UTF-8 support):**
+```bash
+# Ensure virtual environment is activated
+venv\Scripts\activate
+
+# Set encoding for Unicode output (emojis in logs)
+set PYTHONIOENCODING=utf-8
+
+# Run main test suite
+python -X utf8 run_tests.py
+
+# Run integration tests
+python -X utf8 "tests\integration\test_mcp_agent.py"
+```
+
+**Linux/Mac:**
+```bash
+# Ensure virtual environment is activated
+source venv/bin/activate
+
+# Run main test suite
+python run_tests.py
+
+# Run integration tests
+python tests/integration/test_mcp_agent.py
+```
+
+**Test Categories:**
+- `tests/mcp/` - Unit tests for individual MCP servers
+- `tests/integration/` - Full agent system testing  
+- `tests/scenarios/` - Real-world usage patterns
+
+## 🔄 Development Workflow
+
+**Branch Strategy:**
+- `main` - Production releases
+- `develop` - Active development (use for new features)
+
+**Making Changes:**
+```bash
+# Switch to develop branch
+git checkout develop
+
+# Make your changes, then commit
+git add .
+git commit -m "Your change description"
+
+# Push to develop branch
+git push origin develop
+```
+
 ## 📊 Performance & Statistics
 
 - **⚡ Startup Time**: ~2-3 seconds (all servers initialized)

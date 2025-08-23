@@ -1,196 +1,103 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides specific guidance to Claude Code (claude.ai/code) when working with this repository.
 
 ## Project Overview
 
-🤖 **AI-Showmaker** is an enterprise-grade AI development assistant powered by an **MCP (Model Context Protocol) inspired architecture** with specialized servers for comprehensive development workflows. Transform from simple tasks to complex multi-step projects with built-in progress tracking and context management.
+🤖 **AI-Showmaker** is an enterprise-grade AI development assistant powered by an MCP-inspired architecture. For complete project overview, features, and architecture details, see [README.md](./ReadMe.md).
 
-## Quick Start
+## Claude Code Quick Reference
 
+**Key Commands for Claude Code:**
 ```bash
-# Clone and setup
-git clone https://github.com/davechendatascience/ai-showmaker.git
-cd ai-showmaker
-python -m venv venv && source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+# Run tests with proper encoding (Windows)
+set PYTHONIOENCODING=utf-8 && python -X utf8 run_tests.py
 
-# Configure (copy .env.example to .env and add your keys)
-cp .env.example .env
+# Run integration tests
+python -X utf8 "tests\integration\test_mcp_agent.py"
+
+# Run the agent
+python main.py
 
 # Run interactive demo
 python demo_mcp.py
-
-# Or run the full agent
-python main.py
 ```
 
-## MCP Architecture Overview
+## Claude Code Development Guidelines
 
-**4 Specialized MCP Servers, 22+ Professional Tools:**
+### Testing Requirements
+- **Always run tests after code changes**: Use `run_tests.py` for quick validation
+- **Windows users**: Use UTF-8 encoding flags for Unicode output (emojis in logs)
+- **Integration tests**: Run `test_mcp_agent.py` for full system validation
 
-### 🧮 **Calculation Server** (4 Tools)
-- Safe mathematical evaluation (AST-based, no dangerous `eval()`)
-- Advanced functions: trigonometry, logarithms, factorials, GCD/LCM  
-- Variable management with persistent calculations
-- Scientific constants: π, e, τ, ∞
+### Configuration for Claude Code
+The project supports multiple configuration methods detailed in [README.md](./ReadMe.md#️-configuration). For Claude Code development:
 
-### 🌐 **Remote Server** (4 Tools)  
-- SSH operations with connection pooling
-- Interactive program support with input handling
-- SFTP file management with security validation
-- Directory operations and remote filesystem management
+1. **Environment variables** (recommended for production)
+2. **.env file** (recommended for development)
+3. **JSON configuration** (flexible alternative)
 
-### 🔧 **Development Server** (8 Tools)
-- Git integration: status, add, commit, log, diff operations
-- File search with pattern matching across projects  
-- Package management for Python dependencies
-- Complete version control and project management
+## MCP Server Architecture
 
-### 📋 **Monitoring Server** (6 Tools)
-- Todo lists for complex multi-step task tracking
-- Progress monitoring with real-time status updates  
-- Session management across long development workflows
-- Agent memory with persistent task history
+**4 Specialized Servers, 22+ Tools** - detailed in [README.md](./ReadMe.md#️-architecture):
+- 🧮 **Calculation Server**: Safe math evaluation, variables, scientific functions
+- 🌐 **Remote Server**: SSH/SFTP operations with security validation  
+- 🔧 **Development Server**: Git integration, file search, package management
+- 📋 **Monitoring Server**: Todo tracking, session management, progress monitoring
 
-## Configuration
+## Claude Code Best Practices
 
-Choose one of these configuration approaches (priority order):
+### When Making Code Changes
+1. **Always run tests first**: `python -X utf8 run_tests.py`
+2. **Test specific functionality**: Use integration tests for complex features
+3. **Check cross-platform compatibility**: Especially for Windows Unicode issues
+4. **Validate security**: All file operations, SSH connections, input validation
 
-**Option 1: Environment Variables (Production)**
+### Common Tasks
 ```bash
-export GOOGLE_API_KEY="your-api-key-here"
-export AWS_HOST="your-ec2-host"
-export AWS_USER="ec2-user"
-export PEM_PATH="secrets/your-key.pem"
-```
+# Fix failing tests
+python -X utf8 run_tests.py
 
-**Option 2: .env file (Development)**
-```bash
-cp .env.example .env
-# Edit .env with your configuration values
-```
+# Test remote operations
+python -X utf8 "tests\integration\test_mcp_agent.py"
 
-**Option 3: JSON Configuration (Flexible)**
-```json
-{
-  "google_api_key": "your-api-key",
-  "aws_host": "your-ec2-host",
-  "aws_user": "ec2-user",
-  "pem_path": "secrets/your-key.pem"
-}
-```
+# Validate agent todo functionality  
+python -X utf8 "tests\integration\test_agent_todos.py"
 
-## Running Tests
-
-**Run all MCP server tests:**
-```bash
-# Ensure virtual environment is activated
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Run unit tests for individual servers
-python -m pytest tests/mcp/ -v
-
-# Run integration tests
-python -m pytest tests/integration/ -v
-
-# Run specific test scenarios
-python tests/scenarios/test_queries.py
-
-# Quick MCP server validation
-python -m tests.mcp.test_servers
-```
-
-**Test Categories:**
-- `tests/mcp/` - Unit tests for individual MCP servers
-- `tests/integration/` - Full agent system testing  
-- `tests/scenarios/` - Real-world usage patterns
-
-## Enterprise Security Features
-
-- 🚫 **No `eval()` usage**: Safe AST-based mathematical evaluation
-- 🛡️ **Path traversal protection**: Comprehensive file path validation  
-- 🔐 **SSH key authentication**: No password-based authentication
-- ✅ **Input validation**: All parameters validated against JSON schemas
-- 🔒 **Secret management**: Environment-based configuration system
-- ⏱️ **Resource management**: Connection pooling with proper cleanup
-
-## Development Workflow
-
-**Branch Strategy:**
-- `main` - Production releases
-- `develop` - Active development (use for new features)
-
-**Making Changes:**
-```bash
-# Switch to develop branch
-git checkout develop
-
-# Make your changes, then commit
-git add .
-git commit -m "Your change description"
-
-# Push to develop branch
-git push origin develop
-```
-
-**Pull Request Process:**
-Yes, for proper code review process, create pull requests to merge `develop` → `main`:
-```bash
-# Using GitHub CLI (if available)
-gh pr create --title "Your PR Title" --base main --head develop
-
-# Or through GitHub web interface
-# Navigate to repository → Pull requests → New pull request
-# Base: main ← Compare: develop
-```
-
-## Running the Agent
-
-**Interactive Demo:**
-```bash
+# Run interactive demo for manual testing
 python demo_mcp.py
 ```
 
-**Full Agent System:**
+### Key Files to Know
+- `core/agent.py` - Main agent orchestration
+- `mcp_servers/*/server.py` - Individual MCP server implementations
+- `run_tests.py` - Primary test runner (Windows-compatible)
+- `tests/integration/` - Full system testing
+
+For complete project details, testing instructions, configuration options, and architecture documentation, see [README.md](./ReadMe.md).
+
+---
+
+## Important Claude Code Reminders
+
+**Development Workflow:**
+- Use `develop` branch for new features
+- Always run tests before committing changes
+- Windows users: Set `PYTHONIOENCODING=utf-8` for Unicode output
+- Create pull requests from `develop` → `main` for code review
+
+**Security & Best Practices:**
+- Never commit secrets or API keys
+- All file operations include path traversal protection
+- SSH connections use key-based authentication only
+- Input validation is enforced via JSON schemas
+- Use AST-based math evaluation (no `eval()`)
+
+**Key Testing Commands:**
 ```bash
-python main.py
+# Main test validation
+python -X utf8 run_tests.py
+
+# Full integration testing
+python -X utf8 "tests\integration\test_mcp_agent.py"
 ```
-
-**Agent Features:**
-- Multi-server orchestration with 22+ tools
-- Built-in todo list management for complex tasks
-- Interactive command support for remote servers
-- Comprehensive error handling and retry mechanisms
-- Session persistence across long workflows
-
-## Project Structure
-
-```
-ai-showmaker/
-├── 🎯 core/              # Agent orchestration & configuration
-│   ├── agent.py          # Main agent with MCP server integration
-│   └── config.py         # Multi-source configuration management
-├── 🏗️ mcp_servers/       # 4 specialized MCP servers
-│   ├── base/            # Base server classes and interfaces
-│   ├── calculation/     # Mathematical operations server
-│   ├── remote/          # SSH/SFTP operations server  
-│   ├── development/     # Git & file operations server
-│   └── monitoring/      # Todo & session management server
-├── 🧪 tests/            # Comprehensive test suite
-│   ├── mcp/            # Unit tests for individual servers
-│   ├── integration/    # Full system integration tests
-│   └── scenarios/      # Real-world usage patterns
-├── 📚 docs/            # Comprehensive documentation
-├── 🚀 main.py          # Primary entry point
-└── 🎮 demo_mcp.py      # Interactive demonstrations
-```
-
-## Security Considerations
-
-- ✅ Secrets stored securely in environment variables or `secrets/` directory
-- ✅ All file operations include path traversal attack prevention
-- ✅ SSH connections use key-based authentication only
-- ✅ Mathematical evaluation uses AST parsing (no dangerous `eval()`)
-- ✅ All user inputs validated against JSON schemas
-- ✅ Connection pooling with proper resource cleanup
