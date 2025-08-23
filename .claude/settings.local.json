@@ -5,7 +5,8 @@
       "Bash(source:*)",
       "Bash(python:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Read(/C:\\c\\Users\\ychen\\OneDrive\\文件\\GitHub/**)"
     ],
     "deny": [],
     "ask": []
