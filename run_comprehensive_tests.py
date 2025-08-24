@@ -65,7 +65,7 @@ async def run_intelligent_task_planning_tests():
             sys.executable, "-m", "pytest", 
             "tests/integration/test_intelligent_task_planning.py",
             "-v", "--tb=short"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
             print("✅ Intelligent task planning tests passed")
@@ -90,7 +90,7 @@ async def run_robust_task_planning_tests():
             sys.executable, "-m", "pytest", 
             "tests/integration/test_intelligent_task_planning_robust.py",
             "-v", "--tb=short"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
             print("✅ Robust task planning tests passed")
@@ -115,7 +115,7 @@ async def run_enhanced_mcp_tests():
             sys.executable, "-m", "pytest", 
             "tests/integration/test_enhanced_mcp_integration.py",
             "-v", "--tb=short"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
             print("✅ Enhanced MCP integration tests passed")
@@ -140,7 +140,7 @@ async def run_mcp_agent_improved_tests():
             sys.executable, "-m", "pytest", 
             "tests/integration/test_mcp_agent_improved.py",
             "-v", "--tb=short"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
             print("✅ Improved MCP agent tests passed")
