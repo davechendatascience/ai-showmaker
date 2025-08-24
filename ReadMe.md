@@ -122,7 +122,10 @@ tests/
 ```
 
 ### Test Coverage
-- **✅ 15+ Test Files**: Comprehensive validation of all functionality
+- **✅ 20+ Test Files**: Comprehensive validation of all functionality
+- **✅ Intelligent Task Planning Tests**: Complex task detection and execution
+- **✅ LlamaIndex Integration Tests**: Enhanced LLM capabilities
+- **✅ Output Validation Tests**: Pattern matching and error detection
 - **✅ Offline Testing**: MCP servers can be tested without internet
 - **✅ Integration Testing**: Full agent workflows with todo tracking
 - **✅ Security Testing**: Path traversal and input validation tests
@@ -182,11 +185,14 @@ venv\Scripts\activate
 # Set encoding for Unicode output (emojis in logs)
 set PYTHONIOENCODING=utf-8
 
-# Run main test suite
+# Run comprehensive test suite (recommended)
+python -X utf8 run_comprehensive_tests.py
+
+# Run legacy test suite (basic MCP servers only)
 python -X utf8 run_tests.py
 
-# Run integration tests
-python -X utf8 "tests\integration\test_mcp_agent.py"
+# Run individual integration tests
+python -X utf8 "tests\integration\test_intelligent_task_planning.py"
 ```
 
 **Linux/Mac:**
@@ -194,11 +200,14 @@ python -X utf8 "tests\integration\test_mcp_agent.py"
 # Ensure virtual environment is activated
 source venv/bin/activate
 
-# Run main test suite
+# Run comprehensive test suite (recommended)
+python run_comprehensive_tests.py
+
+# Run legacy test suite (basic MCP servers only)
 python run_tests.py
 
-# Run integration tests
-python tests/integration/test_mcp_agent.py
+# Run individual integration tests
+python tests/integration/test_intelligent_task_planning.py
 ```
 
 **Test Categories:**
