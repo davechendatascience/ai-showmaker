@@ -1,12 +1,24 @@
 # AI-Showmaker
 
-🤖 **Enterprise-Grade AI Development Assistant**
+🤖 **Intelligent AI Development Assistant**
 
-An advanced AI agent powered by **MCP (Model Context Protocol) inspired architecture** with specialized servers for comprehensive development workflows. Transform from simple tasks to complex multi-step projects with built-in progress tracking and context management.
+An advanced AI agent with **Intelligent Task Planning** powered by **MCP (Model Context Protocol) inspired architecture** and **LlamaIndex integration**. Automatically detects complex multi-step tasks and executes them systematically with built-in progress tracking, output validation, and context management.
 
 ## 🏗️ Architecture
 
-**MCP-Inspired Server System** - 4 specialized servers, 22+ professional tools:
+**Intelligent Agent System** - 3 agent types, 4 specialized servers, 22+ professional tools:
+
+### 🧠 **Intelligent Task Planning**
+- ✅ **Automatic Task Detection**: Identifies complex multi-step tasks
+- ✅ **Domain-Specific Planning**: Flask, deployment, monitoring, data processing
+- ✅ **Systematic Execution**: Step-by-step task execution with progress tracking
+- ✅ **Output Validation**: Intelligent pattern matching and error detection
+- ✅ **Error Recovery**: Graceful failure handling with detailed reporting
+
+### 🤖 **Agent Types**
+- ✅ **LangChain Agent**: Traditional MCP integration
+- ✅ **LlamaIndex Agent**: Enhanced LLM capabilities with inference.net
+- ✅ **Intelligent Agent**: Advanced task planning with automatic execution
 
 ### 🧮 **Calculation Server** (4 Tools)
 - ✅ **Safe Mathematical Evaluation**: AST-based parsing (no dangerous `eval()`)
@@ -52,6 +64,20 @@ python main.py
 ```
 
 ## 🎯 Example Capabilities
+
+### 🧠 Intelligent Task Planning
+```
+"Create a Flask web application with:
+1. Basic web server on port 5000
+2. Welcome page with current time
+3. Health check endpoint
+4. Basic logging
+5. Requirements.txt with Flask dependency
+6. Startup script
+7. Test the application startup"
+
+→ Agent automatically detects this as a complex task and executes all 6 steps systematically!
+```
 
 ### 🧪 Multi-Server Workflows
 ```

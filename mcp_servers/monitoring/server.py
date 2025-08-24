@@ -154,26 +154,16 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         # Todo Management
         create_todos_tool = MCPTool(
             name="create_todos",
-            description="Create todo list for multi-step tasks (2+ steps). ALWAYS use for: building apps, creating scripts, deploying services. Input: JSON 'todos' array or string array.",
+            description="Create todo list. Call as: create_todos(todos=['Plan project', 'Write code', 'Test app']) - always use a simple array of strings",
             parameters={
                 "type": "object",
                 "properties": {
                     "todos": {
                         "type": "array",
-                        "description": "List of todo items. Can be strings or objects with content/status/activeForm",
+                        "description": "Array of task strings like ['Plan architecture', 'Write code', 'Deploy app']",
                         "items": {
-                            "oneOf": [
-                                {"type": "string", "description": "Simple task description"},
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "content": {"type": "string", "description": "Task description"},
-                                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Task status", "default": "pending"},
-                                        "activeForm": {"type": "string", "description": "Present continuous form of the task"}
-                                    },
-                                    "required": ["content"]
-                                }
-                            ]
+                            "type": "string",
+                            "description": "Task description as simple string"
                         }
                     }
                 },
@@ -187,22 +177,22 @@ class MonitoringMCPServer(AIShowmakerMCPServer):
         
         update_todo_tool = MCPTool(
             name="update_todo_status", 
-            description="Update todo item status. Required parameters: todo_id (string) and status (string: pending/in_progress/completed/failed)",
+            description="Update todo status. Call as: update_todo_status(todo_id='todo_1', status='completed') or update_todo_status(todo_id='todo_2', status='in_progress')",
             parameters={
                 "type": "object",
                 "properties": {
                     "todo_id": {
                         "type": "string",
-                        "description": "ID of the todo item to update"
+                        "description": "Todo ID like 'todo_1', 'todo_2', 'todo_3'"
                     },
                     "status": {
                         "type": "string",
                         "enum": ["pending", "in_progress", "completed", "failed"],
-                        "description": "New status for the todo item"
+                        "description": "Status: 'pending', 'in_progress', 'completed', or 'failed'"
                     },
                     "notes": {
                         "type": "string",
-                        "description": "Optional notes about the status change",
+                        "description": "Optional notes (not required)",
                         "default": ""
                     }
                 },

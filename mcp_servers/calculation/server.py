@@ -166,13 +166,13 @@ class CalculationMCPServer(AIShowmakerMCPServer):
         # Register the main calculation tool
         calculate_tool = MCPTool(
             name="calculate",
-            description="Perform safe mathematical calculations including arithmetic, trigonometry, logarithms, factorials, variables, and complex expressions",
+            description="Calculate mathematical expressions. Call with expression parameter only. Examples: calculate(expression='5 + 3'), calculate(expression='sqrt(25)'), calculate(expression='2 ** 4')",
             parameters={
                 "type": "object",
                 "properties": {
                     "expression": {
                         "type": "string",
-                        "description": "Mathematical expression to evaluate (e.g., '2 + 3 * 4', 'sin(pi/2)', 'x = 5')"
+                        "description": "Math expression like '5 + 3', 'sqrt(16)', 'factorial(5)', 'sin(pi/2)'"
                     }
                 },
                 "required": ["expression"]
@@ -186,17 +186,17 @@ class CalculationMCPServer(AIShowmakerMCPServer):
         # Register variable management tools
         set_variable_tool = MCPTool(
             name="set_variable",
-            description="Set a variable for use in calculations",
+            description="Set a variable for calculations. Call as: set_variable(name='x', value=10) or set_variable(name='pi', value=3.14159)",
             parameters={
                 "type": "object", 
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Variable name"
+                        "description": "Variable name like 'x', 'y', 'result'"
                     },
                     "value": {
                         "type": "number", 
-                        "description": "Variable value"
+                        "description": "Numeric value to assign to the variable"
                     }
                 },
                 "required": ["name", "value"]
@@ -209,7 +209,7 @@ class CalculationMCPServer(AIShowmakerMCPServer):
         
         get_variables_tool = MCPTool(
             name="get_variables",
-            description="Get all currently defined variables",
+            description="Get all defined variables. Call as: get_variables() with no parameters",
             parameters={
                 "type": "object",
                 "properties": {}
@@ -222,7 +222,7 @@ class CalculationMCPServer(AIShowmakerMCPServer):
         
         clear_variables_tool = MCPTool(
             name="clear_variables",
-            description="Clear all variables from memory",
+            description="Clear all variables from memory. Call as: clear_variables() with no parameters",
             parameters={
                 "type": "object",
                 "properties": {}

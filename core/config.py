@@ -71,7 +71,9 @@ class ConfigManager:
     def _load_environment_variables(self) -> None:
         """Load configuration from environment variables."""
         env_vars = {
-            'google_api_key': 'GOOGLE_API_KEY',
+            'inference_net_key': 'INFERENCE_DOT_NET_KEY',
+            'inference_net_base_url': 'INFERENCE_NET_BASE_URL',
+            'inference_net_model': 'INFERENCE_NET_MODEL',
             'aws_host': 'AWS_HOST', 
             'aws_user': 'AWS_USER',
             'pem_path': 'PEM_PATH',
@@ -89,6 +91,8 @@ class ConfigManager:
     def _set_defaults(self) -> None:
         """Set default values for missing configuration."""
         defaults = {
+            'inference_net_base_url': 'https://api.inference.net/v1',
+            'inference_net_model': 'mistralai/mistral-nemo-12b-instruct/fp-8',
             'aws_host': 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com',
             'aws_user': 'ec2-user',
             'pem_path': 'secrets/ai-showmaker.pem',
@@ -126,7 +130,7 @@ class ConfigManager:
     
     def _validate_configuration(self) -> None:
         """Validate that required configuration is present."""
-        required_keys = ['google_api_key']
+        required_keys = ['inference_net_key', 'inference_net_base_url', 'inference_net_model']
         
         missing_keys = []
         for key in required_keys:
@@ -163,7 +167,9 @@ class ConfigManager:
     def get_agent_config(self) -> Dict[str, Any]:
         """Get agent-specific configuration."""
         return {
-            'google_api_key': self.get('google_api_key'),
+            'inference_net_key': self.get('inference_net_key'),
+            'inference_net_base_url': self.get('inference_net_base_url'),
+            'inference_net_model': self.get('inference_net_model'),
             'max_retries': self.get('max_retries'),
             'timeout_seconds': self.get('timeout_seconds')
         }
@@ -176,7 +182,7 @@ class ConfigManager:
         """String representation of configuration (excluding sensitive data)."""
         safe_config = self.config_data.copy()
         # Mask sensitive values
-        sensitive_keys = ['google_api_key', 'api_key', 'password', 'token']
+        sensitive_keys = ['api_key', 'password', 'token']
         for key in safe_config:
             if any(sensitive in key.lower() for sensitive in sensitive_keys):
                 safe_config[key] = '*' * 8

@@ -110,17 +110,17 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register command execution tool
         execute_command_tool = MCPTool(
             name="execute_command",
-            description="Execute commands on remote server. Required parameter: command (string). Optional: input_data (string for interactive programs)",
+            description="Execute commands on remote server. Call as: execute_command(command='ls -la') or execute_command(command='python script.py', input_data='user input')",
             parameters={
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "Command to execute on remote server"
+                        "description": "Shell command like 'ls', 'cat file.txt', 'python script.py'"
                     },
                     "input_data": {
                         "type": "string",
-                        "description": "Optional input data for interactive programs (use \\n for newlines)",
+                        "description": "Input for interactive commands (optional)",
                         "default": ""
                     }
                 },
@@ -135,17 +135,17 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file writing tool
         write_file_tool = MCPTool(
             name="write_file", 
-            description="Write files to remote server via SFTP. Required parameters: filename (string) and content (string)",
+            description="Write files to remote server. Call as: write_file(filename='test.txt', content='Hello World')",
             parameters={
                 "type": "object",
                 "properties": {
                     "filename": {
                         "type": "string",
-                        "description": "Name of file to create (relative path only)"
+                        "description": "Filename like 'script.py', 'data.txt', 'config.json'"
                     },
                     "content": {
                         "type": "string",
-                        "description": "Content to write to the file"
+                        "description": "File content as a string"
                     }
                 },
                 "required": ["filename", "content"]
@@ -159,13 +159,13 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file reading tool
         read_file_tool = MCPTool(
             name="read_file",
-            description="Read file content from remote server via SFTP. Required parameter: filename (string)", 
+            description="Read files from remote server. Call as: read_file(filename='script.py') or read_file(filename='data.txt')", 
             parameters={
                 "type": "object",
                 "properties": {
                     "filename": {
                         "type": "string",
-                        "description": "Name of file to read"
+                        "description": "Filename to read like 'script.py', 'data.txt'"
                     }
                 },
                 "required": ["filename"]
@@ -179,13 +179,13 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register directory listing tool
         list_directory_tool = MCPTool(
             name="list_directory",
-            description="List contents of directory on remote server. Optional parameter: path (string, defaults to current directory)",
+            description="List directory contents on remote server. Call as: list_directory() for current directory or list_directory(path='/home/user')",
             parameters={
                 "type": "object", 
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Directory path to list (default: current directory)",
+                        "description": "Directory path like '/home/user' or 'subdir' (optional, defaults to current)",
                         "default": "."
                     }
                 }
