@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 """
-Test runner that works properly with Windows Unicode and pytest.
-Runs all MCP server tests without encoding conflicts.
+LEGACY Test Runner - Basic MCP Server Tests Only
+
+This is a legacy test runner that only tests basic MCP server functionality.
+For comprehensive testing of the intelligent task planning system, use:
+    python run_comprehensive_tests.py
+
+This legacy runner tests:
+- Basic MCP servers (calculation, development, monitoring, remote)
+- Todo functionality fixes
+
+It does NOT test:
+- Intelligent task planning system
+- LlamaIndex integration
+- Output validation
+- Enhanced MCP integration
+- Improved agent capabilities
 """
 import os
 import sys
