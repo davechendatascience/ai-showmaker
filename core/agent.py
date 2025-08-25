@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import initialize_agent, AgentType
@@ -19,6 +19,7 @@ from mcp_servers.calculation.server import CalculationMCPServer
 from mcp_servers.remote.server import RemoteMCPServer  
 from mcp_servers.development.server import DevelopmentMCPServer
 from mcp_servers.monitoring.server import MonitoringMCPServer
+from mcp_servers.websearch.server import WebSearchMCPServer
 from .config import ConfigManager
 from .exceptions import AIShowmakerError
 
@@ -65,6 +66,10 @@ class MCPServerManager:
             self.servers['monitoring'] = MonitoringMCPServer()
             await self.servers['monitoring'].initialize()
             
+            # Initialize web search server
+            self.servers['websearch'] = WebSearchMCPServer()
+            await self.servers['websearch'].initialize()
+            
             self.logger.info("All MCP servers initialized successfully")
             
         except Exception as e:
@@ -82,26 +87,74 @@ class MCPServerManager:
             
             # Handle different input formats
             if isinstance(todos, str):
+                # Clean up the string first - remove common LangChain artifacts
+                todos_clean = todos.strip()
+                # Remove trailing content after newlines that might be LangChain artifacts
+                if '\n' in todos_clean:
+                    lines = todos_clean.split('\n')
+                    # Look for the first line that looks like JSON or a list
+                    for line in lines:
+                        line = line.strip()
+                        if (line.startswith('[') and ']' in line) or (line.startswith('{') and '}' in line):
+                            todos_clean = line
+                            break
+                
                 # Try to parse as JSON
                 try:
-                    todos = json.loads(todos)
+                    todos = json.loads(todos_clean)
                 except json.JSONDecodeError:
-                    # If not JSON, split by common delimiters and create simple todos
-                    if "," in todos:
-                        todo_items = [item.strip() for item in todos.split(",")]
-                    elif "\n" in todos:
-                        todo_items = [item.strip() for item in todos.split("\n")]
+                    # Try to extract array-like content manually
+                    if todos_clean.startswith('[') and ']' in todos_clean:
+                        # Extract content between brackets
+                        start = todos_clean.find('[')
+                        end = todos_clean.rfind(']') + 1
+                        array_content = todos_clean[start:end]
+                        try:
+                            todos = json.loads(array_content)
+                        except json.JSONDecodeError:
+                            # Manual parsing as fallback
+                            array_content = array_content.strip('[]')
+                            todo_items = []
+                            # Split by comma but respect quoted strings
+                            current_item = ""
+                            in_quotes = False
+                            for char in array_content:
+                                if char == '"' and (not current_item or current_item[-1] != '\\'):
+                                    in_quotes = not in_quotes
+                                elif char == ',' and not in_quotes:
+                                    if current_item.strip():
+                                        todo_items.append(current_item.strip().strip('"'))
+                                    current_item = ""
+                                    continue
+                                current_item += char
+                            if current_item.strip():
+                                todo_items.append(current_item.strip().strip('"'))
+                            
+                            todos = []
+                            for item in todo_items:
+                                if item:
+                                    todos.append({
+                                        "content": item,
+                                        "status": "pending",
+                                        "activeForm": f"Working on {item.lower()}"
+                                    })
                     else:
-                        todo_items = [todos.strip()]
-                    
-                    todos = []
-                    for item in todo_items:
-                        if item:
-                            todos.append({
-                                "content": item,
-                                "status": "pending",
-                                "activeForm": f"Working on {item.lower()}"
-                            })
+                        # If not array format, split by common delimiters and create simple todos
+                        if "," in todos_clean:
+                            todo_items = [item.strip() for item in todos_clean.split(",")]
+                        elif "\n" in todos_clean:
+                            todo_items = [item.strip() for item in todos_clean.split("\n")]
+                        else:
+                            todo_items = [todos_clean.strip()]
+                        
+                        todos = []
+                        for item in todo_items:
+                            if item:
+                                todos.append({
+                                    "content": item,
+                                    "status": "pending",
+                                    "activeForm": f"Working on {item.lower()}"
+                                })
             
             # Handle list of strings (convert to proper format)
             if isinstance(todos, list) and todos:
@@ -132,6 +185,46 @@ class MCPServerManager:
             self.logger.error(f"Error normalizing todos parameter: {str(e)}")
             return arguments
     
+    def _unwrap_double_wrapped_parameters(self, arguments: Dict[str, Any], mcp_tool) -> Dict[str, Any]:
+        """Fix parameter double-wrapping issues like expression='expression=\"5+3\"'."""
+        try:
+            if not arguments:
+                return arguments
+            
+            tool_properties = mcp_tool.parameters.get('properties', {})
+            unwrapped_arguments = {}
+            
+            for param_name, param_value in arguments.items():
+                if isinstance(param_value, str) and param_name in tool_properties:
+                    # Check for double-wrapping pattern: param_name="param_name='value'"
+                    double_wrap_pattern = f"{param_name}="
+                    if param_value.startswith(double_wrap_pattern):
+                        # Extract the inner value
+                        inner_part = param_value[len(double_wrap_pattern):]
+                        
+                        # Handle different quote patterns
+                        if inner_part.startswith('"') and inner_part.endswith('"'):
+                            # Remove outer double quotes: "value"
+                            unwrapped_value = inner_part[1:-1]
+                        elif inner_part.startswith("'") and inner_part.endswith("'"):
+                            # Remove outer single quotes: 'value'
+                            unwrapped_value = inner_part[1:-1]
+                        else:
+                            unwrapped_value = inner_part
+                        
+                        self.logger.info(f"Unwrapped parameter {param_name}: '{param_value}' → '{unwrapped_value}'")
+                        unwrapped_arguments[param_name] = unwrapped_value
+                    else:
+                        unwrapped_arguments[param_name] = param_value
+                else:
+                    unwrapped_arguments[param_name] = param_value
+            
+            return unwrapped_arguments
+            
+        except Exception as e:
+            self.logger.error(f"Error unwrapping parameters: {str(e)}")
+            return arguments
+    
     def _convert_mcp_tool_to_langchain(self, server_name: str, mcp_tool) -> Tool:
         """Convert an MCP tool to a LangChain tool."""
         
@@ -142,10 +235,24 @@ class MCPServerManager:
                 if args and len(args) == 1:
                     # Handle single string argument (common in LangChain)
                     if isinstance(args[0], str):
+                        # Clean up common LangChain artifacts first
+                        clean_input = args[0].strip()
+                        if '\n' in clean_input:
+                            lines = clean_input.split('\n')
+                            # Use only the first non-empty line for parsing
+                            for line in lines:
+                                line = line.strip()
+                                if line and not line.lower().startswith('observation'):
+                                    clean_input = line
+                                    break
+                        
                         try:
                             import json
                             # Try to parse as JSON first
-                            arguments = json.loads(args[0])
+                            arguments = json.loads(clean_input)
+                            
+                            # Fix parameter double-wrapping (e.g. expression="expression='5+3'")
+                            arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
                             
                             # Special handling for monitoring server todos
                             if mcp_tool.name == "create_todos" and "todos" in arguments:
@@ -156,15 +263,33 @@ class MCPServerManager:
                             param_names = list(mcp_tool.parameters.get('properties', {}).keys())
                             if param_names:
                                 param_name = param_names[0]
-                                arguments = {param_name: args[0]}
+                                
+                                # Handle None/empty inputs - use defaults or empty dict
+                                if clean_input is None or clean_input == "None" or clean_input == "" or clean_input == "null":
+                                    arguments = {}
+                                else:
+                                    arguments = {param_name: clean_input}
+                                    # Fix parameter double-wrapping for single parameter case
+                                    arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
+                                    # Special handling for monitoring server todos
+                                    if mcp_tool.name == "create_todos" and param_name == "todos":
+                                        arguments = self._normalize_todos_parameter(arguments)
                             else:
-                                arguments = {"input": args[0]}
+                                # Handle None/empty inputs 
+                                if clean_input is None or clean_input == "None" or clean_input == "" or clean_input == "null":
+                                    arguments = {}
+                                else:
+                                    arguments = {"input": clean_input}
                     else:
                         arguments = args[0]
+                        # Fix parameter double-wrapping for direct argument case
+                        arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
                         if mcp_tool.name == "create_todos" and "todos" in arguments:
                             arguments = self._normalize_todos_parameter(arguments)
                 else:
                     arguments = kwargs
+                    # Fix parameter double-wrapping for kwargs case
+                    arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
                     if mcp_tool.name == "create_todos" and "todos" in arguments:
                         arguments = self._normalize_todos_parameter(arguments)
                 
@@ -307,10 +432,11 @@ For interactive programs, use the remote server's execute_command tool with inpu
             ])
             
             # Initialize the language model
-            chat = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash", 
+            chat = ChatOpenAI(
+                model=self.config.get('inference_net_model', 'Qwen/Qwen2.5-Coder-32B-Instruct'), 
                 temperature=0,
-                google_api_key=self.config.get('google_api_key')
+                base_url=self.config.get('inference_net_base_url', 'https://api.inference.net/v1'),
+                api_key=self.config.get('inference_net_key')
             )
             
             # Create the agent with error handling

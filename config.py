@@ -16,16 +16,10 @@ def load_config():
                     key, value = line.split('=', 1)
                     os.environ[key] = value
     
-    # Load Google API key
-    if 'GOOGLE_API_KEY' in os.environ:
-        config['google_api_key'] = os.environ['GOOGLE_API_KEY']
-    else:
-        # Fallback to secrets.json for backward compatibility
-        secrets_file = Path('secrets/secrets.json')
-        if secrets_file.exists():
-            with open(secrets_file, 'r') as f:
-                secrets = json.load(f)
-            config['google_api_key'] = secrets.get('GOOGLE_API_KEY')
+    # Load inference.net configuration
+    config['inference_net_key'] = os.environ.get('INFERENCE_DOT_NET_KEY')
+    config['inference_net_base_url'] = os.environ.get('INFERENCE_NET_BASE_URL', 'https://api.inference.net/v1')
+    config['inference_net_model'] = os.environ.get('INFERENCE_NET_MODEL', 'mistralai/mistral-nemo-12b-instruct/fp-8')
     
     # Load AWS configuration
     config['aws_host'] = os.environ.get('AWS_HOST', 'ec2-54-206-17-243.ap-southeast-2.compute.amazonaws.com')
