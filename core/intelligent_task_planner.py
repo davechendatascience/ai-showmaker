@@ -142,7 +142,7 @@ class IntelligentTaskPlanner:
     
     def generate_task_plan(self, query: str, available_tools: List[Dict[str, Any]]) -> TaskPlan:
         """Generate a task plan for a complex query."""
-        task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         
         # Analyze the query to determine task type
         task_type = self._classify_task(query)
@@ -218,7 +218,7 @@ class IntelligentTaskPlanner:
             steps.append(TaskStep(
                 description="Analyze current directory structure",
                 tool_name="remote_list_directory",
-                parameters={"path": ".", "recursive": True}
+                parameters={"path": "."}
             ))
         
         # Step 3: Create deployment todos
@@ -342,7 +342,7 @@ python3 app.py
             steps.append(TaskStep(
                 description="Analyze current project structure",
                 tool_name="remote_list_directory",
-                parameters={"path": ".", "recursive": True}
+                parameters={"path": "."}
             ))
         
         # Step 2: Create development todos
@@ -403,7 +403,7 @@ python3 app.py
             steps.append(TaskStep(
                 description="Analyze data directory structure",
                 tool_name="remote_list_directory",
-                parameters={"path": ".", "recursive": True}
+                parameters={"path": "."}
             ))
         
         # Step 2: Create data processing todos

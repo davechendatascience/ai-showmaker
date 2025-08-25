@@ -19,6 +19,7 @@ from mcp_servers.calculation.server import CalculationMCPServer
 from mcp_servers.remote.server import RemoteMCPServer  
 from mcp_servers.development.server import DevelopmentMCPServer
 from mcp_servers.monitoring.server import MonitoringMCPServer
+from mcp_servers.websearch.server import WebSearchMCPServer
 from .config import ConfigManager
 from .exceptions import AIShowmakerError
 
@@ -64,6 +65,10 @@ class MCPServerManager:
             # Initialize monitoring server
             self.servers['monitoring'] = MonitoringMCPServer()
             await self.servers['monitoring'].initialize()
+            
+            # Initialize web search server
+            self.servers['websearch'] = WebSearchMCPServer()
+            await self.servers['websearch'].initialize()
             
             self.logger.info("All MCP servers initialized successfully")
             

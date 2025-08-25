@@ -64,7 +64,7 @@ async def run_intelligent_task_planning_tests():
         result = subprocess.run([
             sys.executable, "-m", "pytest", 
             "tests/integration/test_intelligent_task_planning.py",
-            "-v", "--tb=short"
+            "-v", "--tb=long"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
@@ -72,7 +72,9 @@ async def run_intelligent_task_planning_tests():
             return True
         else:
             print(f"❌ Intelligent task planning tests failed")
-            print(f"Error: {result.stderr}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
             return False
     except Exception as e:
         print(f"❌ Intelligent task planning tests error: {e}")
@@ -89,7 +91,7 @@ async def run_robust_task_planning_tests():
         result = subprocess.run([
             sys.executable, "-m", "pytest", 
             "tests/integration/test_intelligent_task_planning_robust.py",
-            "-v", "--tb=short"
+            "-v", "--tb=long"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
@@ -97,7 +99,9 @@ async def run_robust_task_planning_tests():
             return True
         else:
             print(f"❌ Robust task planning tests failed")
-            print(f"Error: {result.stderr}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
             return False
     except Exception as e:
         print(f"❌ Robust task planning tests error: {e}")
@@ -114,7 +118,7 @@ async def run_enhanced_mcp_tests():
         result = subprocess.run([
             sys.executable, "-m", "pytest", 
             "tests/integration/test_enhanced_mcp_integration.py",
-            "-v", "--tb=short"
+            "-v", "--tb=long"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
@@ -122,10 +126,39 @@ async def run_enhanced_mcp_tests():
             return True
         else:
             print(f"❌ Enhanced MCP integration tests failed")
-            print(f"Error: {result.stderr}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
             return False
     except Exception as e:
         print(f"❌ Enhanced MCP integration tests error: {e}")
+        return False
+
+async def run_websearch_tests():
+    """Run web search tests."""
+    print("🔍 Testing Web Search Functionality...")
+    try:
+        import subprocess
+        import sys
+        
+        # Run pytest for the web search tests
+        result = subprocess.run([
+            sys.executable, "-m", "pytest", 
+            "tests/integration/test_websearch.py",
+            "-v", "--tb=long"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+        
+        if result.returncode == 0:
+            print("✅ Web search tests passed")
+            return True
+        else:
+            print(f"❌ Web search tests failed")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
+            return False
+    except Exception as e:
+        print(f"❌ Web search tests error: {e}")
         return False
 
 async def run_mcp_agent_improved_tests():
@@ -139,7 +172,7 @@ async def run_mcp_agent_improved_tests():
         result = subprocess.run([
             sys.executable, "-m", "pytest", 
             "tests/integration/test_mcp_agent_improved.py",
-            "-v", "--tb=short"
+            "-v", "--tb=long"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         
         if result.returncode == 0:
@@ -147,10 +180,66 @@ async def run_mcp_agent_improved_tests():
             return True
         else:
             print(f"❌ Improved MCP agent tests failed")
-            print(f"Error: {result.stderr}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
             return False
     except Exception as e:
         print(f"❌ Improved MCP agent tests error: {e}")
+        return False
+
+async def run_agent_todos_tests():
+    """Run agent todos tests."""
+    print("📋 Testing Agent Todos...")
+    try:
+        import subprocess
+        import sys
+        
+        # Run pytest for the agent todos tests
+        result = subprocess.run([
+            sys.executable, "-m", "pytest", 
+            "tests/integration/test_agent_todos.py",
+            "-v", "--tb=long"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+        
+        if result.returncode == 0:
+            print("✅ Agent todos tests passed")
+            return True
+        else:
+            print(f"❌ Agent todos tests failed")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
+            return False
+    except Exception as e:
+        print(f"❌ Agent todos tests error: {e}")
+        return False
+
+async def run_mcp_agent_tests():
+    """Run MCP agent tests."""
+    print("🔧 Testing MCP Agent...")
+    try:
+        import subprocess
+        import sys
+        
+        # Run pytest for the MCP agent tests
+        result = subprocess.run([
+            sys.executable, "-m", "pytest", 
+            "tests/integration/test_mcp_agent.py",
+            "-v", "--tb=long"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+        
+        if result.returncode == 0:
+            print("✅ MCP agent tests passed")
+            return True
+        else:
+            print(f"❌ MCP agent tests failed")
+            print(f"Return code: {result.returncode}")
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
+            return False
+    except Exception as e:
+        print(f"❌ MCP agent tests error: {e}")
         return False
 
 async def main():
@@ -180,6 +269,15 @@ async def main():
     # Test 6: Improved MCP Agent
     results.append(await run_mcp_agent_improved_tests())
     
+    # Test 7: Web Search
+    results.append(await run_websearch_tests())
+    
+    # Test 8: Agent Todos
+    results.append(await run_agent_todos_tests())
+    
+    # Test 9: MCP Agent
+    results.append(await run_mcp_agent_tests())
+    
     # Summary
     print(f"\n{'='*60}")
     print("📊 Test Results Summary:")
@@ -191,7 +289,10 @@ async def main():
         "Intelligent Task Planning",
         "Robust Task Planning",
         "Enhanced MCP Integration",
-        "Improved MCP Agent"
+        "Improved MCP Agent",
+        "Web Search",
+        "Agent Todos",
+        "MCP Agent"
     ]
     
     passed = 0

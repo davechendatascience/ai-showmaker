@@ -557,13 +557,15 @@ class EnhancedMCPServerManager:
         from mcp_servers.remote.server import RemoteMCPServer
         from mcp_servers.development.server import DevelopmentMCPServer
         from mcp_servers.monitoring.server import MonitoringMCPServer
+        from mcp_servers.websearch.server import WebSearchMCPServer
         
         # Initialize servers with enhanced error handling
         servers_to_init = [
             ("calculation", CalculationMCPServer()),
             ("remote", RemoteMCPServer()),
             ("development", DevelopmentMCPServer()),
-            ("monitoring", MonitoringMCPServer())
+            ("monitoring", MonitoringMCPServer()),
+            ("websearch", WebSearchMCPServer())
         ]
         
         for name, server in servers_to_init:
