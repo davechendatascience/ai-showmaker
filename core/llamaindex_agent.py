@@ -15,20 +15,20 @@ from datetime import datetime
 
 try:
     from llama_index.core.tools import FunctionTool
-    from llama_index.llms.openai_like import OpenAILike
     from llama_index.core.settings import Settings
     from llama_index.core.chat_engine import SimpleChatEngine
     from llama_index.core.memory import ChatMemoryBuffer
     from llama_index.core.llms import ChatMessage, MessageRole
     from llama_index.core.callbacks import CallbackManager
     from llama_index.core.tools.types import BaseTool
+    from .custom_llm import InferenceNetLLM
     import json
     import re
     LLAMAINDEX_AVAILABLE = True
 except ImportError:
     # Fallback for when LlamaIndex is not installed
     FunctionTool = None
-    OpenAILike = None
+    InferenceNetLLM = None
     Settings = None
     SimpleChatEngine = None
     ChatMemoryBuffer = None
@@ -151,15 +151,12 @@ class LlamaIndexAgent:
         if not LLAMAINDEX_AVAILABLE:
             raise ImportError("LlamaIndex packages not installed. Run: pip install llama-index llama-index-llms-openai")
         
-        # Initialize LLM using OpenAILike for custom API compatibility
-        self.llm = OpenAILike(
+        # Initialize LLM using custom InferenceNetLLM for inference.net compatibility
+        self.llm = InferenceNetLLM(
             model=config.get('inference_net_model', 'mistralai/mistral-nemo-12b-instruct/fp-8'),
             api_key=config.get('inference_net_key'),
-            api_base=config.get('inference_net_base_url', 'https://api.inference.net/v1'),
-            temperature=0,
-            is_chat_model=True,
-            is_function_calling_model=False,  # We'll handle function calling manually
-            context_window=128000  # Set a reasonable context window
+            base_url=config.get('inference_net_base_url', 'https://api.inference.net/v1'),
+            temperature=0
         )
         
         # Set global settings
@@ -563,20 +560,36 @@ class LlamaIndexMCPServerManager:
         self.servers = {}
         self.agent = None
         
-    async def initialize_servers(self) -> None:
+    async def initialize_servers(self, config: ConfigManager) -> None:
         """Initialize all MCP servers with enhanced error handling."""
         from mcp_servers.calculation.server import CalculationMCPServer
         from mcp_servers.remote.server import RemoteMCPServer
-        from mcp_servers.development.server import DevelopmentMCPServer
+        from mcp_servers.development.server import ReadOnlyDevelopmentMCPServer, DevelopmentMCPServer
         from mcp_servers.monitoring.server import MonitoringMCPServer
         
         # Initialize servers with enhanced error handling
+        # Development server is disabled by default for safety
         servers_to_init = [
             ("calculation", CalculationMCPServer()),
             ("remote", RemoteMCPServer()),
-            ("development", DevelopmentMCPServer()),
             ("monitoring", MonitoringMCPServer())
         ]
+        
+        # Add development server with authentication
+        if config.get('enable_development_server', False):
+            git_repo_path = config.get('git_repo_path')
+            auth_token = config.get('git_auth_token')
+            
+            if git_repo_path and auth_token:
+                servers_to_init.append(("development", DevelopmentMCPServer(git_repo_path, auth_token)))
+                self.logger.warning(f"⚠️  FULL Development server enabled for repository: {git_repo_path}")
+            else:
+                self.logger.error("❌ Development server requires git_repo_path and git_auth_token configuration")
+        elif config.get('enable_readonly_development', True):
+            servers_to_init.append(("development", ReadOnlyDevelopmentMCPServer()))
+            self.logger.info("✅ Read-only Development server enabled (safe mode)")
+        else:
+            self.logger.info("Development server disabled for safety")
         
         for name, server in servers_to_init:
             try:
@@ -633,7 +646,7 @@ class AIShowmakerAgent:
         
     async def initialize(self) -> None:
         """Initialize the agent and MCP servers."""
-        await self.manager.initialize_servers()
+        await self.manager.initialize_servers(self.config)
         self.agent = self.manager.create_agent(self.config)
         self.logger.info("AIShowmakerAgent initialized with enhanced LlamaIndex backend")
     

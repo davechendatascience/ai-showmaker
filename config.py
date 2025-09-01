@@ -26,6 +26,12 @@ def load_config():
     config['aws_user'] = os.environ.get('AWS_USER', 'ec2-user')
     config['pem_path'] = os.environ.get('PEM_PATH', 'secrets/ai-showmaker.pem')
     
+    # Load Git development configuration (for authenticated development server)
+    config['enable_development_server'] = os.environ.get('ENABLE_DEVELOPMENT_SERVER', 'false').lower() == 'true'
+    config['enable_readonly_development'] = os.environ.get('ENABLE_READONLY_DEVELOPMENT', 'true').lower() == 'true'
+    config['git_repo_path'] = os.environ.get('GIT_REPO_PATH')
+    config['git_auth_token'] = os.environ.get('GIT_AUTH_TOKEN')
+    
     return config
 
 def get_config():

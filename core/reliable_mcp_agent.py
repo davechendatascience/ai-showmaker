@@ -18,7 +18,7 @@ from enum import Enum
 
 try:
     from llama_index.core.tools import FunctionTool
-    from llama_index.llms.openai_like import OpenAILike
+    from .custom_llm import InferenceNetLLM
     from llama_index.core.settings import Settings
     from llama_index.core.memory import ChatMemoryBuffer
     from llama_index.core.llms import ChatMessage, MessageRole
@@ -282,15 +282,12 @@ class ReliableLlamaIndexAgent:
         if not LLAMAINDEX_AVAILABLE:
             raise ImportError("LlamaIndex packages not installed. Run: pip install llama-index llama-index-llms-openai")
         
-        # Initialize LLM using OpenAILike for custom API compatibility
-        self.llm = OpenAILike(
+        # Initialize LLM using custom InferenceNetLLM for inference.net compatibility
+        self.llm = InferenceNetLLM(
             model=config.get('inference_net_model', 'mistralai/mistral-nemo-12b-instruct/fp-8'),
             api_key=config.get('inference_net_key'),
-            api_base=config.get('inference_net_base_url', 'https://api.inference.net/v1'),
-            temperature=0,  # Low temperature for more consistent tool usage
-            is_chat_model=True,
-            is_function_calling_model=False,
-            context_window=128000
+            base_url=config.get('inference_net_base_url', 'https://api.inference.net/v1'),
+            temperature=0  # Low temperature for more consistent tool usage
         )
         
         # Set global settings

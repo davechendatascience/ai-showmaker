@@ -19,14 +19,56 @@ from core.exceptions import ValidationError
 
 
 class DevelopmentMCPServer(AIShowmakerMCPServer):
-    """MCP Server for development workflow operations."""
+    """MCP Server for development workflow operations with authentication."""
     
-    def __init__(self):
+    def __init__(self, git_repo_path: str = None, auth_token: str = None):
         super().__init__(
             name="development",
             version="2.0.0", 
-            description="Development workflow tools including Git, file operations, and package management"
+            description="Development workflow tools including Git, file operations, and package management (AUTHENTICATED)"
         )
+        self.git_repo_path = git_repo_path
+        self.auth_token = auth_token
+        self.is_authenticated = False
+        
+        if git_repo_path and auth_token:
+            self._validate_authentication()
+    
+    def _validate_authentication(self):
+        """Validate authentication and repository access."""
+        try:
+            # Check if repository path exists and is a git repository
+            if not os.path.exists(self.git_repo_path):
+                raise ValueError(f"Repository path does not exist: {self.git_repo_path}")
+            
+            git_dir = os.path.join(self.git_repo_path, '.git')
+            if not os.path.exists(git_dir):
+                raise ValueError(f"Not a git repository: {self.git_repo_path}")
+            
+            # Here you could add additional authentication logic
+            # For now, we'll just check if the token is provided
+            if not self.auth_token:
+                raise ValueError("Authentication token required")
+            
+            self.is_authenticated = True
+            self.logger.info(f"✅ Authenticated for repository: {self.git_repo_path}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Authentication failed: {str(e)}")
+            self.is_authenticated = False
+            raise
+    
+    def _check_authentication(self, operation: str) -> str:
+        """Check authentication for sensitive operations."""
+        if not self.is_authenticated:
+            return f"❌ Authentication required for {operation}. Please provide git_repo_path and auth_token."
+        return None
+    
+    def _get_repository_path(self, user_path: str = ".") -> str:
+        """Get the repository path, preferring authenticated path."""
+        if self.is_authenticated and self.git_repo_path:
+            return self.git_repo_path
+        return user_path
     
     async def initialize(self) -> None:
         """Initialize the development server and register tools."""
@@ -280,10 +322,17 @@ class DevelopmentMCPServer(AIShowmakerMCPServer):
     
     async def _git_add(self, files: str, repository_path: str = ".") -> str:
         """Stage files for git commit."""
+        # Check authentication for write operations
+        auth_error = self._check_authentication("git add")
+        if auth_error:
+            return auth_error
+        
+        repo_path = self._get_repository_path(repository_path)
+        
         try:
             result = subprocess.run(
                 ["git", "add"] + files.split(),
-                cwd=repository_path,
+                cwd=repo_path,
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -299,10 +348,17 @@ class DevelopmentMCPServer(AIShowmakerMCPServer):
     
     async def _git_commit(self, message: str, repository_path: str = ".") -> str:
         """Create git commit."""
+        # Check authentication for write operations
+        auth_error = self._check_authentication("git commit")
+        if auth_error:
+            return auth_error
+        
+        repo_path = self._get_repository_path(repository_path)
+        
         try:
             result = subprocess.run(
                 ["git", "commit", "-m", message],
-                cwd=repository_path,
+                cwd=repo_path,
                 capture_output=True,
                 text=True, 
                 timeout=30
@@ -488,3 +544,197 @@ class DevelopmentMCPServer(AIShowmakerMCPServer):
     async def shutdown(self) -> None:
         """Shutdown the development server."""
         self.logger.info("Development MCP Server shutting down")
+
+
+class ReadOnlyDevelopmentMCPServer(AIShowmakerMCPServer):
+    """Read-only MCP Server for development operations - SAFE VERSION.
+    
+    This version only allows read operations and safe queries, preventing
+    any modifications to the repository or file system.
+    """
+    
+    def __init__(self):
+        super().__init__(
+            name="development_readonly",
+            version="2.0.0",
+            description="Read-only development operations server (SAFE MODE)"
+        )
+    
+    async def initialize(self) -> None:
+        """Initialize the read-only development server and register SAFE tools only."""
+        from ..base.server import MCPTool
+        
+        # SAFE: Read-only git operations
+        git_status_tool = MCPTool(
+            name="git_status",
+            description="Get git repository status showing modified files, untracked files, and branch info (READ-ONLY)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "repository_path": {
+                        "type": "string",
+                        "description": "Path to git repository",
+                        "default": "."
+                    }
+                }
+            },
+            execute_func=self._git_status,
+            category="git_readonly",
+            timeout=15
+        )
+        self.register_tool(git_status_tool)
+        
+        git_log_tool = MCPTool(
+            name="git_log",
+            description="Show git commit history (READ-ONLY)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "max_commits": {
+                        "type": "integer",
+                        "description": "Maximum number of commits to show",
+                        "default": 10
+                    },
+                    "repository_path": {
+                        "type": "string",
+                        "description": "Path to git repository",
+                        "default": "."
+                    }
+                }
+            },
+            execute_func=self._git_log,
+            category="git_readonly",
+            timeout=15
+        )
+        self.register_tool(git_log_tool)
+        
+        git_diff_tool = MCPTool(
+            name="git_diff",
+            description="Show git differences for files (READ-ONLY)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string", 
+                        "description": "Specific file to diff (optional - shows all changes if not provided)",
+                        "default": ""
+                    },
+                    "staged": {
+                        "type": "boolean",
+                        "description": "Show staged changes instead of working directory changes",
+                        "default": False
+                    },
+                    "repository_path": {
+                        "type": "string",
+                        "description": "Path to git repository",
+                        "default": "."
+                    }
+                }
+            },
+            execute_func=self._git_diff,
+            category="git_readonly",
+            timeout=30
+        )
+        self.register_tool(git_diff_tool)
+        
+        # SAFE: File search operations (read-only)
+        find_files_tool = MCPTool(
+            name="find_files",
+            description="Search for files by name pattern or content (READ-ONLY)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "File name pattern to search for (supports wildcards)"
+                    },
+                    "directory": {
+                        "type": "string", 
+                        "description": "Directory to search in",
+                        "default": "."
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "description": "File extension filter (e.g., 'py', 'js')",
+                        "default": ""
+                    }
+                },
+                "required": ["pattern"]
+            },
+            execute_func=self._find_files,
+            category="files_readonly",
+            timeout=30
+        )
+        self.register_tool(find_files_tool)
+        
+        search_in_files_tool = MCPTool(
+            name="search_in_files",
+            description="Search for text content within files (READ-ONLY)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "search_text": {
+                        "type": "string",
+                        "description": "Text to search for"
+                    },
+                    "directory": {
+                        "type": "string",
+                        "description": "Directory to search in",
+                        "default": "."
+                    },
+                    "file_extension": {
+                        "type": "string",
+                        "description": "File extension filter (e.g., 'py', 'js')",
+                        "default": ""
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Case sensitive search",
+                        "default": False
+                    }
+                },
+                "required": ["search_text"]
+            },
+            execute_func=self._search_in_files,
+            category="files_readonly",
+            timeout=30
+        )
+        self.register_tool(search_in_files_tool)
+        
+        self.logger.info(f"Read-only Development MCP Server initialized with {len(self.tools)} SAFE tools")
+        self.logger.warning("⚠️  This is READ-ONLY mode - no git commits or file modifications allowed!")
+    
+    async def shutdown(self) -> None:
+        """Shutdown the read-only development server."""
+        self.logger.info("Read-only Development MCP Server shutting down")
+    
+    def get_server_info(self) -> Dict[str, Any]:
+        """Get server information."""
+        return {
+            'name': self.name,
+            'version': self.version,
+            'description': self.description,
+            'tools_count': len(self.tools),
+            'mode': 'readonly_safe'
+        }
+    
+    # Inherit safe methods from parent class
+    async def _git_status(self, repository_path: str = ".") -> str:
+        """Get git repository status (READ-ONLY)."""
+        return await super()._git_status(repository_path)
+    
+    async def _git_log(self, max_commits: int = 10, repository_path: str = ".") -> str:
+        """Show git commit history (READ-ONLY)."""
+        return await super()._git_log(max_commits, repository_path)
+    
+    async def _git_diff(self, file_path: str = "", staged: bool = False, repository_path: str = ".") -> str:
+        """Show git differences for files (READ-ONLY)."""
+        return await super()._git_diff(file_path, staged, repository_path)
+    
+    async def _find_files(self, pattern: str, directory: str = ".", file_type: str = "") -> str:
+        """Search for files by name pattern or content (READ-ONLY)."""
+        return await super()._find_files(pattern, directory, file_type)
+    
+    async def _search_in_files(self, search_text: str, directory: str = ".", file_extension: str = "", case_sensitive: bool = False) -> str:
+        """Search for text content within files (READ-ONLY)."""
+        return await super()._search_in_files(search_text, directory, file_extension, case_sensitive)
