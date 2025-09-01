@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import our components
-from core.intelligent_reliable_agent import IntelligentReliableAIShowmakerAgent
+from core.agent import UnifiedAIShowmakerAgent
 from core.config import ConfigManager
 
 
@@ -40,7 +40,7 @@ class WebSearchTaskExecutor:
         print("🚀 Initializing Web Search Task Executor...")
         
         config = ConfigManager()
-        self.agent = IntelligentReliableAIShowmakerAgent(config)
+        self.agent = UnifiedAIShowmakerAgent(config)
         await self.agent.initialize()
         
         print("✅ Agent initialized with web search capabilities")

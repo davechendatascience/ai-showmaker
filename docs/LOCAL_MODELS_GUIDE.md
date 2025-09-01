@@ -243,7 +243,7 @@ This will test:
 
 ```python
 from core.local_llm import RemoteOllamaLLM
-from core.llamaindex_agent import AIShowmakerAgent
+from core.agent import UnifiedAIShowmakerAgent
 from config import get_config
 
 # Get configuration
@@ -257,7 +257,7 @@ llm = RemoteOllamaLLM(
 )
 
 # Create agent with local model
-agent = AIShowmakerAgent(
+agent = UnifiedAIShowmakerAgent(
     llm=llm,
     config=config
 )

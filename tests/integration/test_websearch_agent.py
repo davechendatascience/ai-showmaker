@@ -7,7 +7,7 @@ This script tests if web search is working with the intelligent agent.
 
 import asyncio
 import logging
-from core.intelligent_reliable_agent import IntelligentReliableAIShowmakerAgent
+from core.agent import UnifiedAIShowmakerAgent
 from core.config import ConfigManager
 
 # Set up logging
@@ -24,7 +24,7 @@ async def test_websearch_agent():
         # Initialize agent
         print("🚀 Initializing agent...")
         config = ConfigManager()
-        agent = IntelligentReliableAIShowmakerAgent(config)
+        agent = UnifiedAIShowmakerAgent(config)
         await agent.initialize()
         
         print("✅ Agent initialized successfully")

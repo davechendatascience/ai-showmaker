@@ -1,558 +1,791 @@
+#!/usr/bin/env python3
 """
-Enhanced AI-Showmaker Agent with MCP Server Integration
+Unified AI-Showmaker Agent
 
-This module provides the main agent class that orchestrates multiple
-MCP servers and provides a unified interface for tool execution.
+This module provides a unified agent that integrates with MCP servers,
+MCP-Zero plugins, and LLM capabilities for intelligent task execution.
 """
 
-import asyncio
 import logging
-from typing import Dict, List, Any, Optional
+import asyncio
+import json
+import re
+import time
+from typing import Dict, List, Any, Optional, Callable, Union
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
-from langchain_openai import ChatOpenAI
-from langchain.tools import Tool
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import initialize_agent, AgentType
+from llama_index.core.tools import FunctionTool
+from llama_index.core.settings import Settings
+from llama_index.core.chat_engine import SimpleChatEngine
+from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core.llms import ChatMessage, MessageRole
+from llama_index.core.callbacks import CallbackManager
+from llama_index.core.tools.types import BaseTool
 
+# Import our custom LLM implementations
+from .custom_llm import InferenceNetLLM
+from .local_llm import OllamaLLM, LlamaCppLLM
+
+from .config import ConfigManager
+from .exceptions import AIShowmakerError
+from .mcp_zero import MCPServerDiscovery
 from mcp_servers.calculation.server import CalculationMCPServer
-from mcp_servers.remote.server import RemoteMCPServer  
+from mcp_servers.remote.server import RemoteMCPServer
 from mcp_servers.development.server import DevelopmentMCPServer
 from mcp_servers.monitoring.server import MonitoringMCPServer
 from mcp_servers.websearch.server import WebSearchMCPServer
-from .config import ConfigManager
-from .exceptions import AIShowmakerError
 
 
-class MCPServerManager:
-    """Manages multiple MCP servers and provides unified tool access."""
+@dataclass
+class TaskPlan:
+    """Represents a planned task with multiple steps."""
+    task_id: str
+    description: str
+    steps: List['TaskStep']
+    status: str = "pending"  # pending, in_progress, completed, failed
+    created_at: datetime = field(default_factory=datetime.now)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class TaskStep:
+    """Represents a single step in a task plan."""
+    step_id: str
+    description: str
+    tool_name: str
+    parameters: Dict[str, Any]
+    status: str = "pending"  # pending, in_progress, completed, failed
+    result: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class MCPToolMetadata:
+    """Enhanced metadata for MCP tools."""
+    name: str
+    description: str
+    server: str
+    category: str
+    version: str
+    parameters: Dict[str, Any]
+    examples: List[str] = field(default_factory=list)
+
+
+class MCPToolWrapper:
+    """Wrapper for MCP tools with enhanced metadata."""
+    
+    def __init__(self, tool: BaseTool, server_name: str, category: str = "utilities"):
+        self.tool = tool
+        self.metadata = MCPToolMetadata(
+            name=getattr(tool, 'name', str(tool)),
+            description=getattr(tool, 'description', ""),
+            server=server_name,
+            category=getattr(tool, 'category', category),
+            version=getattr(tool, 'version', "1.0.0"),
+            parameters=getattr(tool, 'parameters', {}),
+            examples=[]
+        )
+
+
+class IntelligentTaskPlanner:
+    """Intelligent task planning for complex operations."""
     
     def __init__(self):
-        self.servers: Dict[str, Any] = {}
-        self.tools: Dict[str, Tool] = {}
-        self.logger = self._setup_logging()
-    
-    def _setup_logging(self) -> logging.Logger:
-        """Set up logging for the server manager."""
-        logger = logging.getLogger("ai_showmaker.core")
-        logger.setLevel(logging.INFO)
+        self.logger = logging.getLogger("ai_showmaker.task_planner")
         
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            
-        return logger
+    def is_complex_task(self, query: str) -> bool:
+        """Determine if a task is complex and needs planning."""
+        complex_indicators = [
+            "deploy", "set up", "configure", "install", "build", "create",
+            "process", "analyze", "monitor", "pipeline", "environment"
+        ]
+        
+        query_lower = query.lower()
+        return any(indicator in query_lower for indicator in complex_indicators)
     
-    async def initialize_servers(self) -> None:
+    def _classify_task(self, query: str) -> str:
+        """Classify task into different types."""
+        query_lower = query.lower()
+        
+        if any(word in query_lower for word in ["deploy", "deployment"]):
+            return "deployment"
+        elif any(word in query_lower for word in ["set up", "development", "environment"]):
+            return "development"
+        elif any(word in query_lower for word in ["monitor", "monitoring", "tracking"]):
+            return "monitoring"
+        elif any(word in query_lower for word in ["process", "analyze", "dataset"]):
+            return "data_processing"
+        elif any(word in query_lower for word in ["install", "system", "software"]):
+            return "system_administration"
+        else:
+            return "general"
+    
+    def create_task_plan(self, query: str) -> TaskPlan:
+        """Create a task plan for complex operations."""
+        task_id = f"task_{int(time.time())}"
+        task_type = self._classify_task(query)
+        
+        # Create steps based on task type
+        steps = self._create_steps_for_task_type(query, task_type)
+        
+        return TaskPlan(
+            task_id=task_id,
+            description=query,
+            steps=steps
+        )
+    
+    def _create_steps_for_task_type(self, query: str, task_type: str) -> List[TaskStep]:
+        """Create appropriate steps for different task types."""
+        steps = []
+        
+        if task_type == "deployment":
+            steps = [
+                TaskStep("step_1", "Check system requirements", "system_info", {}),
+                TaskStep("step_2", "Validate deployment environment", "remote_execute", {"command": "pwd"}),
+                TaskStep("step_3", "Execute deployment", "remote_execute", {"command": "deploy"}),
+                TaskStep("step_4", "Verify deployment", "monitoring_status", {})
+            ]
+        elif task_type == "development":
+            steps = [
+                TaskStep("step_1", "Check current environment", "system_info", {}),
+                TaskStep("step_2", "Set up development tools", "remote_execute", {"command": "setup_dev"}),
+                TaskStep("step_3", "Verify setup", "remote_execute", {"command": "verify_dev"})
+            ]
+        elif task_type == "monitoring":
+            steps = [
+                TaskStep("step_1", "Check current monitoring status", "monitoring_status", {}),
+                TaskStep("step_2", "Configure monitoring", "remote_execute", {"command": "setup_monitoring"}),
+                TaskStep("step_3", "Verify monitoring", "monitoring_status", {})
+            ]
+        else:
+            # Generic steps for other task types
+            steps = [
+                TaskStep("step_1", "Analyze requirements", "system_info", {}),
+                TaskStep("step_2", "Execute task", "remote_execute", {"command": query}),
+                TaskStep("step_3", "Verify completion", "system_info", {})
+            ]
+        
+        return steps
+
+
+class UnifiedAIShowmakerAgent:
+    """
+    Unified AI-Showmaker Agent that handles all functionalities.
+    
+    This agent consolidates:
+    - MCP tool management
+    - Task planning
+    - Web search integration
+    - Statistics tracking
+    - MCP-Zero integration
+    """
+    
+    def __init__(self, config: ConfigManager):
+        self.config = config
+        self.logger = logging.getLogger("ai_showmaker.agent")
+        
+        # Core components
+        self.mcp_servers: Dict[str, Any] = {}
+        self.mcp_tools: Dict[str, MCPToolWrapper] = {}
+        self.llama_tools: Dict[str, BaseTool] = {}
+        
+        # Task planning
+        self.task_planner = IntelligentTaskPlanner()
+        self.active_task_plans: Dict[str, TaskPlan] = {}
+        
+        # MCP-Zero integration
+        self.mcp_zero_discovery: Optional[MCPServerDiscovery] = None
+        
+        # Statistics and memory
+        self.statistics = {
+            'total_queries': 0,
+            'successful_queries': 0,
+            'failed_queries': 0,
+            'total_tool_calls': 0,
+            'start_time': datetime.now()
+        }
+        
+        self.task_planning_metrics = {
+            'complex_tasks_detected': 0,
+            'task_plans_created': 0,
+            'task_plans_completed': 0,
+            'task_plans_failed': 0
+        }
+        
+        # LLM and chat functionality
+        self.llm = None
+        self.memory = ChatMemoryBuffer.from_defaults(token_limit=4000)
+        
+        # Tool execution registry (now handled by LlamaIndex tools)
+        # self.tool_registry = {}  # name -> function mapping
+        
+    async def initialize(self) -> None:
+        """Initialize the agent with all MCP servers and tools."""
+        try:
+            self.logger.info("Initializing Unified AI-Showmaker Agent...")
+            
+            # Initialize MCP servers
+            await self._initialize_mcp_servers()
+            
+            # Initialize MCP-Zero discovery
+            await self._initialize_mcp_zero()
+            
+            # Initialize LLM
+            await self._initialize_llm()
+            
+            # Initialize chat functionality
+            await self._initialize_chat_functionality()
+            
+            self.logger.info("Agent initialized successfully!")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize agent: {str(e)}")
+            raise AIShowmakerError(f"Agent initialization failed: {str(e)}")
+    
+    async def _initialize_mcp_servers(self) -> None:
         """Initialize all MCP servers."""
         try:
             # Initialize calculation server
-            self.servers['calculation'] = CalculationMCPServer()
-            await self.servers['calculation'].initialize()
+            self.mcp_servers['calculation'] = CalculationMCPServer()
+            await self.mcp_servers['calculation'].initialize()
             
-            # Initialize remote server  
-            self.servers['remote'] = RemoteMCPServer()
-            await self.servers['remote'].initialize()
+            # Initialize remote server
+            self.mcp_servers['remote'] = RemoteMCPServer()
+            await self.mcp_servers['remote'].initialize()
             
             # Initialize development server
-            self.servers['development'] = DevelopmentMCPServer()
-            await self.servers['development'].initialize()
+            self.mcp_servers['development'] = DevelopmentMCPServer()
+            await self.mcp_servers['development'].initialize()
             
             # Initialize monitoring server
-            self.servers['monitoring'] = MonitoringMCPServer()
-            await self.servers['monitoring'].initialize()
+            self.mcp_servers['monitoring'] = MonitoringMCPServer()
+            await self.mcp_servers['monitoring'].initialize()
             
             # Initialize web search server
-            self.servers['websearch'] = WebSearchMCPServer()
-            await self.servers['websearch'].initialize()
+            self.mcp_servers['websearch'] = WebSearchMCPServer()
+            await self.mcp_servers['websearch'].initialize()
+            
+            # Register tools from all servers
+            await self._register_mcp_tools()
             
             self.logger.info("All MCP servers initialized successfully")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize MCP servers: {str(e)}")
-            raise AIShowmakerError(f"Server initialization failed: {str(e)}")
+            raise
     
-    def _normalize_todos_parameter(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize todos parameter to expected format."""
+    async def _initialize_mcp_zero(self) -> None:
+        """Initialize MCP-Zero discovery system."""
         try:
-            import json
+            self.mcp_zero_discovery = MCPServerDiscovery()
+            await self.mcp_zero_discovery.discover_servers()
             
-            todos = arguments.get("todos")
-            if not todos:
-                return arguments
+            # Register discovered tools
+            discovered_servers = await self.mcp_zero_discovery.get_all_servers()
+            for server_name, server in discovered_servers.items():
+                for tool_name, tool in server.tools.items():
+                    wrapper = MCPToolWrapper(tool, server_name, getattr(tool, 'category', 'utilities'))
+                    self.mcp_tools[f"{server_name}_{tool_name}"] = wrapper
             
-            # Handle different input formats
-            if isinstance(todos, str):
-                # Clean up the string first - remove common LangChain artifacts
-                todos_clean = todos.strip()
-                # Remove trailing content after newlines that might be LangChain artifacts
-                if '\n' in todos_clean:
-                    lines = todos_clean.split('\n')
-                    # Look for the first line that looks like JSON or a list
-                    for line in lines:
-                        line = line.strip()
-                        if (line.startswith('[') and ']' in line) or (line.startswith('{') and '}' in line):
-                            todos_clean = line
-                            break
-                
-                # Try to parse as JSON
+            self.logger.info(f"MCP-Zero discovered {len(discovered_servers)} servers")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize MCP-Zero: {str(e)}")
+            # Don't fail initialization if MCP-Zero fails
+    
+    async def _initialize_llm(self) -> None:
+        """Initialize the LLM for intelligent responses."""
+        try:
+            # Try to initialize inference.net LLM first
+            inference_net_key = self.config.get('inference_net_key')
+            if inference_net_key:
+                self.llm = InferenceNetLLM(
+                    model=self.config.get('inference_net_model', 'Qwen/Qwen2.5-Coder-32B-Instruct'),
+                    api_key=inference_net_key,
+                    base_url=self.config.get('inference_net_base_url', 'https://api.inference.net/v1'),
+                    temperature=0
+                )
+                self.logger.info("Initialized InferenceNet LLM")
+            else:
+                # Try to initialize local Ollama LLM
                 try:
-                    todos = json.loads(todos_clean)
-                except json.JSONDecodeError:
-                    # Try to extract array-like content manually
-                    if todos_clean.startswith('[') and ']' in todos_clean:
-                        # Extract content between brackets
-                        start = todos_clean.find('[')
-                        end = todos_clean.rfind(']') + 1
-                        array_content = todos_clean[start:end]
-                        try:
-                            todos = json.loads(array_content)
-                        except json.JSONDecodeError:
-                            # Manual parsing as fallback
-                            array_content = array_content.strip('[]')
-                            todo_items = []
-                            # Split by comma but respect quoted strings
-                            current_item = ""
-                            in_quotes = False
-                            for char in array_content:
-                                if char == '"' and (not current_item or current_item[-1] != '\\'):
-                                    in_quotes = not in_quotes
-                                elif char == ',' and not in_quotes:
-                                    if current_item.strip():
-                                        todo_items.append(current_item.strip().strip('"'))
-                                    current_item = ""
-                                    continue
-                                current_item += char
-                            if current_item.strip():
-                                todo_items.append(current_item.strip().strip('"'))
-                            
-                            todos = []
-                            for item in todo_items:
-                                if item:
-                                    todos.append({
-                                        "content": item,
-                                        "status": "pending",
-                                        "activeForm": f"Working on {item.lower()}"
-                                    })
-                    else:
-                        # If not array format, split by common delimiters and create simple todos
-                        if "," in todos_clean:
-                            todo_items = [item.strip() for item in todos_clean.split(",")]
-                        elif "\n" in todos_clean:
-                            todo_items = [item.strip() for item in todos_clean.split("\n")]
-                        else:
-                            todo_items = [todos_clean.strip()]
-                        
-                        todos = []
-                        for item in todo_items:
-                            if item:
-                                todos.append({
-                                    "content": item,
-                                    "status": "pending",
-                                    "activeForm": f"Working on {item.lower()}"
-                                })
+                    self.llm = OllamaLLM(
+                        model=self.config.get('local_model', 'llama3.2:3b'),
+                        base_url=self.config.get('ollama_base_url', 'http://localhost:11434'),
+                        temperature=0
+                    )
+                    self.logger.info("Initialized local Ollama LLM")
+                except Exception as e:
+                    self.logger.warning(f"Failed to initialize local LLM: {e}")
+                    self.llm = None
             
-            # Handle list of strings (convert to proper format)
-            if isinstance(todos, list) and todos:
-                normalized_todos = []
-                for item in todos:
-                    if isinstance(item, str):
-                        normalized_todos.append({
-                            "content": item,
-                            "status": "pending", 
-                            "activeForm": f"Working on {item.lower()}"
-                        })
-                    elif isinstance(item, dict):
-                        # Ensure required fields exist
-                        if "content" not in item:
-                            continue
-                        normalized_item = {
-                            "content": item.get("content", ""),
-                            "status": item.get("status", "pending"),
-                            "activeForm": item.get("activeForm", f"Working on {item.get('content', '').lower()}")
-                        }
-                        normalized_todos.append(normalized_item)
+            # Set global settings if LLM is available
+            if self.llm:
+                Settings.llm = self.llm
                 
-                arguments["todos"] = normalized_todos
-            
-            return arguments
-            
         except Exception as e:
-            self.logger.error(f"Error normalizing todos parameter: {str(e)}")
-            return arguments
+            self.logger.error(f"Failed to initialize LLM: {str(e)}")
+            self.llm = None
     
-    def _unwrap_double_wrapped_parameters(self, arguments: Dict[str, Any], mcp_tool) -> Dict[str, Any]:
-        """Fix parameter double-wrapping issues like expression='expression=\"5+3\"'."""
+    async def _initialize_chat_functionality(self) -> None:
+        """Initialize chat functionality with LLM integration using standard LlamaIndex tools."""
         try:
-            if not arguments:
-                return arguments
-            
-            tool_properties = mcp_tool.parameters.get('properties', {})
-            unwrapped_arguments = {}
-            
-            for param_name, param_value in arguments.items():
-                if isinstance(param_value, str) and param_name in tool_properties:
-                    # Check for double-wrapping pattern: param_name="param_name='value'"
-                    double_wrap_pattern = f"{param_name}="
-                    if param_value.startswith(double_wrap_pattern):
-                        # Extract the inner value
-                        inner_part = param_value[len(double_wrap_pattern):]
-                        
-                        # Handle different quote patterns
-                        if inner_part.startswith('"') and inner_part.endswith('"'):
-                            # Remove outer double quotes: "value"
-                            unwrapped_value = inner_part[1:-1]
-                        elif inner_part.startswith("'") and inner_part.endswith("'"):
-                            # Remove outer single quotes: 'value'
-                            unwrapped_value = inner_part[1:-1]
-                        else:
-                            unwrapped_value = inner_part
-                        
-                        self.logger.info(f"Unwrapped parameter {param_name}: '{param_value}' → '{unwrapped_value}'")
-                        unwrapped_arguments[param_name] = unwrapped_value
-                    else:
-                        unwrapped_arguments[param_name] = param_value
-                else:
-                    unwrapped_arguments[param_name] = param_value
-            
-            return unwrapped_arguments
-            
+            if self.llm:
+                # Convert MCP tools to standard LlamaIndex FunctionTools
+                for tool_name, wrapper in self.mcp_tools.items():
+                    # Create a proper async function for the tool
+                    async def execute_mcp_tool(**kwargs):
+                        try:
+                            result = await self._execute_mcp_tool(tool_name, **kwargs)
+                            return f"Tool {tool_name} executed successfully: {result}"
+                        except Exception as e:
+                            return f"Tool {tool_name} failed: {str(e)}"
+                    
+                    # Create the LlamaIndex tool
+                    mcp_tool = FunctionTool.from_defaults(
+                        fn=execute_mcp_tool,
+                        name=tool_name,
+                        description=wrapper.metadata.description or f"Execute {tool_name} MCP tool"
+                    )
+                    
+                    self.llama_tools[tool_name] = mcp_tool
+                
+                self.logger.info(f"Initialized chat functionality with {len(self.llama_tools)} LlamaIndex tools")
+            else:
+                self.logger.info("No LLM available, using basic tool execution")
+                
         except Exception as e:
-            self.logger.error(f"Error unwrapping parameters: {str(e)}")
-            return arguments
+            self.logger.error(f"Failed to initialize chat functionality: {str(e)}")
+            raise
     
-    def _convert_mcp_tool_to_langchain(self, server_name: str, mcp_tool) -> Tool:
-        """Convert an MCP tool to a LangChain tool."""
+    async def _register_mcp_tools(self) -> None:
+        """Register tools from all MCP servers."""
+        for server_name, server in self.mcp_servers.items():
+            for tool_name, tool in server.tools.items():
+                wrapper = MCPToolWrapper(tool, server_name, getattr(tool, 'category', 'utilities'))
+                self.mcp_tools[f"{server_name}_{tool_name}"] = wrapper
         
-        def execute_tool(*args, **kwargs) -> str:
-            """Execute the MCP tool synchronously for LangChain."""
-            try:
-                # Convert args to proper format for MCP server
-                if args and len(args) == 1:
-                    # Handle single string argument (common in LangChain)
-                    if isinstance(args[0], str):
-                        # Clean up common LangChain artifacts first
-                        clean_input = args[0].strip()
-                        if '\n' in clean_input:
-                            lines = clean_input.split('\n')
-                            # Use only the first non-empty line for parsing
-                            for line in lines:
-                                line = line.strip()
-                                if line and not line.lower().startswith('observation'):
-                                    clean_input = line
-                                    break
-                        
-                        try:
-                            import json
-                            # Try to parse as JSON first
-                            arguments = json.loads(clean_input)
-                            
-                            # Fix parameter double-wrapping (e.g. expression="expression='5+3'")
-                            arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
-                            
-                            # Special handling for monitoring server todos
-                            if mcp_tool.name == "create_todos" and "todos" in arguments:
-                                arguments = self._normalize_todos_parameter(arguments)
-                                
-                        except json.JSONDecodeError:
-                            # If not JSON, treat as single parameter
-                            param_names = list(mcp_tool.parameters.get('properties', {}).keys())
-                            if param_names:
-                                param_name = param_names[0]
-                                
-                                # Handle None/empty inputs - use defaults or empty dict
-                                if clean_input is None or clean_input == "None" or clean_input == "" or clean_input == "null":
-                                    arguments = {}
-                                else:
-                                    arguments = {param_name: clean_input}
-                                    # Fix parameter double-wrapping for single parameter case
-                                    arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
-                                    # Special handling for monitoring server todos
-                                    if mcp_tool.name == "create_todos" and param_name == "todos":
-                                        arguments = self._normalize_todos_parameter(arguments)
-                            else:
-                                # Handle None/empty inputs 
-                                if clean_input is None or clean_input == "None" or clean_input == "" or clean_input == "null":
-                                    arguments = {}
-                                else:
-                                    arguments = {"input": clean_input}
-                    else:
-                        arguments = args[0]
-                        # Fix parameter double-wrapping for direct argument case
-                        arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
-                        if mcp_tool.name == "create_todos" and "todos" in arguments:
-                            arguments = self._normalize_todos_parameter(arguments)
+        self.logger.info(f"Registered {len(self.mcp_tools)} MCP tools")
+    
+    async def _execute_mcp_tool(self, tool_name: str, **kwargs) -> str:
+        """Execute an MCP tool by name."""
+        try:
+            if tool_name in self.mcp_tools:
+                wrapper = self.mcp_tools[tool_name]
+                server_name = wrapper.metadata.server
+                tool_name_short = tool_name.replace(f"{server_name}_", "")
+                
+                # Check if this is a built-in MCP server or MCP-Zero plugin
+                if server_name in self.mcp_servers:
+                    # Built-in MCP server - execute using the server's execute_tool method
+                    server = self.mcp_servers[server_name]
+                    # Pass kwargs as a dictionary to match the base server API
+                    result = await server.execute_tool(tool_name_short, kwargs)
                 else:
-                    arguments = kwargs
-                    # Fix parameter double-wrapping for kwargs case
-                    arguments = self._unwrap_double_wrapped_parameters(arguments, mcp_tool)
-                    if mcp_tool.name == "create_todos" and "todos" in arguments:
-                        arguments = self._normalize_todos_parameter(arguments)
-                
-                # Run the async MCP tool - handle existing event loop
-                try:
-                    # Try to get the current event loop
-                    current_loop = asyncio.get_event_loop()
-                    if current_loop.is_running():
-                        # Use asyncio.run_coroutine_threadsafe if we're in a running loop
-                        import concurrent.futures
-                        import threading
-                        
-                        def run_in_thread():
-                            new_loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(new_loop)
-                            try:
-                                return new_loop.run_until_complete(
-                                    self.servers[server_name].execute_tool(mcp_tool.name, arguments)
-                                )
-                            finally:
-                                new_loop.close()
-                        
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(run_in_thread)
-                            result = future.result(timeout=30)
+                    # MCP-Zero plugin - execute directly from the tool
+                    tool = wrapper.tool
+                    if hasattr(tool, 'execute_func'):
+                        # Use the tool's execute_func directly
+                        result = await tool.execute_func(**kwargs)
                     else:
-                        # No running loop, safe to use run_until_complete
-                        result = current_loop.run_until_complete(
-                            self.servers[server_name].execute_tool(mcp_tool.name, arguments)
-                        )
-                except RuntimeError:
-                    # No event loop in current thread, create one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        result = loop.run_until_complete(
-                            self.servers[server_name].execute_tool(mcp_tool.name, arguments)
-                        )
-                    finally:
-                        loop.close()
+                        # Fallback to calling the tool object directly
+                        result = await tool(**kwargs)
                 
-                if result.result_type.value == "success":
+                self.statistics['total_tool_calls'] += 1
+                
+                # Convert MCPToolResult to string
+                if hasattr(result, 'data'):
                     return str(result.data)
                 else:
-                    return f"Error: {result.message}"
-                    
-            except Exception as e:
-                self.logger.error(f"Tool execution failed: {mcp_tool.name} - {str(e)}")
-                return f"Tool execution failed: {str(e)}"
-        
-        # Create LangChain tool
-        return Tool(
-            name=f"{server_name}_{mcp_tool.name}",
-            func=execute_tool,
-            description=mcp_tool.description
-        )
-    
-    def get_langchain_tools(self) -> List[Tool]:
-        """Get all tools as LangChain tools."""
-        tools = []
-        
-        for server_name, server in self.servers.items():
-            for tool_name, mcp_tool in server.tools.items():
-                langchain_tool = self._convert_mcp_tool_to_langchain(server_name, mcp_tool)
-                tools.append(langchain_tool)
-        
-        return tools
-    
-    def get_server_info(self) -> Dict[str, Any]:
-        """Get information about all servers."""
-        info = {}
-        for server_name, server in self.servers.items():
-            info[server_name] = server.get_server_info()
-        return info
-    
-    async def shutdown(self) -> None:
-        """Shutdown all MCP servers."""
-        for server_name, server in self.servers.items():
-            try:
-                await server.shutdown()
-                self.logger.info(f"Shutdown {server_name} server")
-            except Exception as e:
-                self.logger.error(f"Error shutting down {server_name}: {str(e)}")
-
-
-class AIShowmakerAgent:
-    """
-    Enhanced AI-Showmaker agent with MCP server integration.
-    
-    Provides a unified interface for interacting with multiple specialized
-    MCP servers through a LangChain-based conversational agent.
-    """
-    
-    def __init__(self, config: Optional[ConfigManager] = None):
-        self.config = config or ConfigManager()
-        self.server_manager = MCPServerManager()
-        self.agent = None
-        self.logger = logging.getLogger("ai_showmaker.agent")
-        
-        # Statistics
-        self.stats = {
-            'total_queries': 0,
-            'successful_queries': 0,
-            'failed_queries': 0,
-            'start_time': datetime.now()
-        }
-    
-    async def initialize(self) -> None:
-        """Initialize the agent and all MCP servers."""
-        try:
-            # Initialize MCP servers
-            await self.server_manager.initialize_servers()
-            
-            # Get tools from all servers
-            tools = self.server_manager.get_langchain_tools()
-            
-            # Set up the LangChain agent
-            system_message = """You are an expert AI development assistant powered by specialized tool servers.
-
-You have access to four main categories of tools:
-1. Calculation tools - Advanced mathematical operations, variables, scientific functions
-2. Remote tools - SSH/SFTP operations on remote servers with security validation  
-3. Development tools - Git operations, file search, package management
-4. Monitoring tools - Todo list management, progress tracking, session management
-
-TODO USAGE RULES:
-- For multi-step tasks (2+ steps): ALWAYS create todos with monitoring_create_todos first
-- Update status with monitoring_update_todo_status as you complete each step  
-- Use monitoring_get_current_todos to check progress
-
-WORKFLOW: Create todos → Execute steps → Update status
-
-Always use the appropriate tools to complete tasks. Be methodical and explain your actions.
-For interactive programs, use the remote server's execute_command tool with input_data parameter.
-"""
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", system_message),
-                ("human", "{input}")
-            ])
-            
-            # Initialize the language model
-            chat = ChatOpenAI(
-                model=self.config.get('inference_net_model', 'Qwen/Qwen2.5-Coder-32B-Instruct'), 
-                temperature=0,
-                base_url=self.config.get('inference_net_base_url', 'https://api.inference.net/v1'),
-                api_key=self.config.get('inference_net_key')
-            )
-            
-            # Create the agent with error handling
-            self.agent = initialize_agent(
-                tools,
-                chat,
-                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                verbose=True,
-                handle_parsing_errors=True,
-                max_iterations=5,
-                early_stopping_method="generate"
-            )
-            
-            self.logger.info(f"AI-Showmaker Agent initialized with {len(tools)} tools")
-            
+                    return str(result)
+            else:
+                return f"Error: Tool '{tool_name}' not found"
         except Exception as e:
-            self.logger.error(f"Agent initialization failed: {str(e)}")
-            raise AIShowmakerError(f"Agent initialization failed: {str(e)}")
+            self.logger.error(f"Error executing tool {tool_name}: {str(e)}")
+            return f"Error executing tool: {str(e)}"
     
-    def _enhance_query_for_todos(self, query: str) -> str:
-        """Enhance query to trigger todo usage for multi-step tasks."""
-        # Keywords that indicate multi-step tasks
-        multi_step_keywords = [
-            'build', 'create', 'develop', 'implement', 'deploy', 'setup', 'install',
-            'configure', 'test', 'write', 'make', 'design', 'plan', 'execute'
-        ]
-        
-        # Check if query contains multi-step indicators
-        query_lower = query.lower()
-        has_multi_step = any(keyword in query_lower for keyword in multi_step_keywords)
-        
-        # Check for explicit step indicators
-        has_steps = any(indicator in query_lower for indicator in ['step', 'then', 'and', 'after', '1)', '2)', '3)'])
-        
-        # If likely multi-step, add simple todo reminder
-        if has_multi_step or has_steps:
-            return f"{query}\n\nNote: Create a todo list first if this has multiple steps."
-        
-        return query
-    
-    def run(self, query: str) -> str:
-        """Execute a query using the agent."""
-        if not self.agent:
-            raise AIShowmakerError("Agent not initialized. Call initialize() first.")
-        
+    async def query(self, query: str) -> str:
+        """Process a user query with intelligent task planning."""
         try:
-            self.stats['total_queries'] += 1
+            self.statistics['total_queries'] += 1
+            start_time = time.time()
             
-            # Enhance query to encourage todo usage
-            enhanced_query = self._enhance_query_for_todos(query)
-            
-            result = self.agent.run(enhanced_query)
-            
-            self.stats['successful_queries'] += 1
-            self.logger.info(f"Query executed successfully: {query[:50]}...")
-            
-            return result
-            
-        except Exception as e:
-            self.stats['failed_queries'] += 1
-            self.logger.error(f"Query execution failed: {str(e)}")
-            return f"Query execution failed: {str(e)}"
-    
-    def human_in_the_loop(self, task_description: str, max_retries: int = 3) -> Optional[str]:
-        """Execute task with human-in-the-loop confirmation."""
-        current_task = task_description
-        
-        for attempt in range(max_retries):
-            try:
-                response = self.run(current_task)
-                print(f"\n--- Agent Response ---")
-                print(response)
-                print(f"--- End Response ---\n")
+            # TEMPORARILY DISABLE OLD TASK PLANNING - use only LLM integration
+            # Check if this is a complex task
+            # if self.task_planner.is_complex_task(query):
+            #     self.task_planning_metrics['complex_tasks_detected'] += 1
+            #     return await self._handle_complex_task(query)
+            # else:
+            # Simple task - execute directly
+            return await self._handle_simple_query(query)
                 
-                confirm = input("Is the task completed successfully? (y/n/q for quit): ").strip().lower()
-                if confirm == "q":
-                    print("Task aborted by user.")
-                    return None
-                elif confirm == "y":
-                    print("✅ Task confirmed!")
-                    return response
-                else:
-                    feedback = input("What should be improved for the next attempt? ")
-                    current_task = (
-                        f"Previous task: {task_description}\n"
-                        f"Previous attempt: {response}\n"
-                        f"User feedback: {feedback}\n"
-                        f"Please try again with improvements."
-                    )
+        except Exception as e:
+            self.statistics['failed_queries'] += 1
+            self.logger.error(f"Error processing query: {str(e)}")
+            return f"Error processing query: {str(e)}"
+        finally:
+            self.statistics['successful_queries'] += 1
+    
+    async def _handle_complex_task(self, query: str) -> str:
+        """Handle complex tasks with task planning."""
+        try:
+            # Create task plan
+            task_plan = self.task_planner.create_task_plan(query)
+            self.active_task_plans[task_plan.task_id] = task_plan
+            self.task_planning_metrics['task_plans_created'] += 1
             
-            except KeyboardInterrupt:
-                print("\nTask interrupted by user.")
-                return None
-            except Exception as e:
-                print(f"Error during attempt {attempt + 1}: {str(e)}")
-                if attempt == max_retries - 1:
-                    return f"Max retries reached. Last error: {str(e)}"
+            # Execute task plan
+            result = await self._execute_task_plan(task_plan)
+            
+            return f"Task completed: {result}"
+            
+        except Exception as e:
+            self.logger.error(f"Error handling complex task: {str(e)}")
+            return f"Error handling complex task: {str(e)}"
+    
+    async def _handle_simple_query(self, query: str) -> str:
+        """Handle simple queries with LLM integration when available."""
+        try:
+            if self.llm:
+                # Use LLM for intelligent responses
+                return await self._handle_query_with_llm(query)
+            else:
+                # Fallback to basic pattern matching
+                return await self._handle_query_basic(query)
+                
+        except Exception as e:
+            self.logger.error(f"Error handling simple query: {str(e)}")
+            return f"Error handling simple query: {str(e)}"
+    
+    async def _handle_query_with_llm(self, query: str) -> str:
+        """Handle queries using LLM for intelligent responses with standard tool calling."""
+        try:
+            if not self.llama_tools:
+                # Fallback to basic handling if no tools available
+                return await self._handle_query_basic(query)
+            
+            # Use a simple approach: directly call the LLM with tool information
+            # and then manually execute the tools based on the response
+            
+            # Build a simple prompt asking the LLM to use tools
+            tool_prompt = f"""You have access to the following tools. Use them when needed:
+
+Available tools:
+{chr(10).join([f"- {name}: {getattr(tool, 'description', 'Execute MCP tool')}" for name, tool in self.llama_tools.items()])}
+
+User query: {query}
+
+Please respond with the tool name and parameters you want to use, or provide a helpful answer if no tools are needed."""
+            
+            # Get LLM response
+            messages = [ChatMessage(role=MessageRole.USER, content=tool_prompt)]
+            response = await self.llm.achat(messages)
+            response_content = response.message.content or ""
+            
+            self.logger.info(f"LLM Response: {response_content}")
+            
+            # Smart tool detection - look for the most specific tool mentioned
+            executed_tools = []
+            
+            # First, try to find exact tool names mentioned in the response
+            mentioned_tools = []
+            for tool_name in self.llama_tools.keys():
+                # Look for tool names that are specifically mentioned (not just partial matches)
+                if f"`{tool_name}`" in response_content or f"'{tool_name}'" in response_content or f'"{tool_name}"' in response_content:
+                    mentioned_tools.append(tool_name)
+                elif f"Tool name: {tool_name}" in response_content:
+                    mentioned_tools.append(tool_name)
+                elif f"Tool Name: {tool_name}" in response_content:
+                    mentioned_tools.append(tool_name)
+            
+            self.logger.info(f"Found mentioned tools: {mentioned_tools}")
+            
+            # If no specific tools mentioned, fall back to pattern matching but be more selective
+            if not mentioned_tools:
+                for tool_name, tool in self.llama_tools.items():
+                    # Only match if the tool name appears in a meaningful context
+                    if (tool_name.lower() in response_content.lower() and 
+                        not any(other_tool in tool_name.lower() for other_tool in self.llama_tools.keys() if other_tool != tool_name)):
+                        mentioned_tools.append(tool_name)
+            
+            # Execute the mentioned tools
+            for tool_name in mentioned_tools:
+                if tool_name in self.llama_tools:
+                    tool = self.llama_tools[tool_name]
+                    self.logger.info(f"Executing tool: {tool_name} with tool object: {type(tool)}")
+                    try:
+                        # Extract parameters from the LLM response
+                        params = self._extract_tool_params(response_content, tool_name)
+                        self.logger.info(f"Extracted params for {tool_name}: {params}")
+                        
+                        # Execute the tool with extracted parameters
+                        if params:
+                            result = await tool.acall(**params)
+                            executed_tools.append(f"Tool {tool_name}: {result}")
+                        else:
+                            # Try with default parameters
+                            result = await tool.acall()
+                            executed_tools.append(f"Tool {tool_name}: {result}")
+                            
+                    except Exception as e:
+                        self.logger.error(f"Tool execution failed: {e}")
+                        continue
+            
+            # If tools were executed, return the results
+            if executed_tools:
+                return "\n".join(executed_tools)
+            
+            # If no tools were executed, return the LLM response
+            return response_content
+            
+        except Exception as e:
+            self.logger.error(f"Error in LLM query handling: {str(e)}")
+            # Fallback to basic handling
+            return await self._handle_query_basic(query)
+    
+    def _extract_tool_params(self, response_content: str, tool_name: str) -> Dict[str, Any]:
+        """Extract tool parameters from LLM response."""
+        params = {}
         
-        return "Max retries reached."
+        # Look for JSON-like parameter structures
+        import re
+        import json
+        
+        # Try to find JSON parameters
+        json_pattern = r'Parameters:\s*\{([^}]+)\}'
+        json_matches = re.findall(json_pattern, response_content, re.IGNORECASE)
+        
+        for match in json_matches:
+            try:
+                # Clean up the JSON string
+                clean_json = match.replace('\n', '').replace('"', '"').replace('"', '"')
+                # Try to parse as JSON
+                parsed = json.loads(f"{{{clean_json}}}")
+                params.update(parsed)
+            except Exception:
+                # If JSON parsing fails, try to extract key-value pairs
+                key_value_pattern = r'(\w+):\s*([^,\n]+)'
+                kv_matches = re.findall(key_value_pattern, match)
+                for key, value in kv_matches:
+                    # Clean up the value
+                    clean_value = value.strip().strip('"').strip("'")
+                    if clean_value.isdigit():
+                        params[key] = int(clean_value)
+                    elif clean_value.lower() in ['true', 'false']:
+                        params[key] = clean_value.lower() == 'true'
+                    else:
+                        params[key] = clean_value
+        
+        # For calculation tools, also look for expression patterns
+        if "calculation" in tool_name.lower():
+            expr_pattern = r'expression["\']?\s*:\s*["\']([^"\']+)["\']'
+            expr_match = re.search(expr_pattern, response_content, re.IGNORECASE)
+            if expr_match:
+                params['expression'] = expr_match.group(1)
+        
+        return params
+    
+    async def _handle_query_basic(self, query: str) -> str:
+        """Handle queries with basic pattern matching."""
+        query_lower = query.lower()
+        
+        # Check for calculation queries
+        if any(word in query_lower for word in ["calculate", "math", "compute", "+", "-", "*", "/"]):
+            if "calculate" in query_lower:
+                expression = query_lower.split("calculate")[-1].strip()
+                if expression:
+                    result = await self._execute_mcp_tool("calculation_calculate", expression=expression)
+                    return f"Calculation result: {result}"
+        
+        # Check for system info queries
+        if "system" in query_lower and "info" in query_lower:
+            result = await self._execute_mcp_tool("remote_system_info")
+            return f"System information: {result}"
+        
+        # Check for tool info queries
+        if "tools" in query_lower and "available" in query_lower:
+            tools_info = self.get_tools_info()
+            return f"Available tools: {len(tools_info)} tools from various MCP servers"
+        
+        # Default response
+        return f"I can help you with various tasks. Available tools: {len(self.mcp_tools)} MCP tools. Try asking about calculations, system information, or available tools."
+    
+    def _build_system_prompt(self) -> str:
+        """Build a comprehensive system prompt for basic queries (tools handled by LlamaIndex)."""
+        prompt = """You are an expert AI development assistant powered by specialized tool servers.
+
+You have access to various MCP tools for:
+- Mathematical calculations and advanced math operations
+- Remote server operations and development tasks
+- Monitoring and progress tracking
+- Web search and content extraction
+
+When users ask for specific operations, you can use the available tools through the standard tool calling interface.
+
+For general questions, provide helpful information based on your knowledge."""
+        
+        return prompt
+    
+    # Note: Function calling is now handled by LlamaIndex's ReActAgent
+    # No need for manual regex parsing
+    
+    # Note: Parameter parsing is now handled by LlamaIndex's ReActAgent
+    # No need for manual parameter parsing
+    
+    # Note: Tool execution is now handled by LlamaIndex's ReActAgent
+    # No need for manual tool execution
+    
+    # Note: Function mapping is now handled by LlamaIndex's ReActAgent
+    # No need for manual function mapping
+    
+    async def _execute_task_plan(self, task_plan: TaskPlan) -> str:
+        """Execute a task plan step by step."""
+        try:
+            task_plan.status = "in_progress"
+            task_plan.started_at = datetime.now()
+            
+            results = []
+            
+            for step in task_plan.steps:
+                step.status = "in_progress"
+                
+                try:
+                    # Execute the step
+                    result = await self._execute_mcp_tool(step.tool_name, **step.parameters)
+                    step.result = result
+                    step.status = "completed"
+                    results.append(f"Step {step.step_id}: {result}")
+                    
+                except Exception as e:
+                    step.error = str(e)
+                    step.status = "failed"
+                    results.append(f"Step {step.step_id}: Failed - {str(e)}")
+            
+            # Update task plan status
+            if all(step.status == "completed" for step in task_plan.steps):
+                task_plan.status = "completed"
+                self.task_planning_metrics['task_plans_completed'] += 1
+            else:
+                task_plan.status = "failed"
+                self.task_planning_metrics['task_plans_failed'] += 1
+            
+            task_plan.completed_at = datetime.now()
+            
+            return "\n".join(results)
+            
+        except Exception as e:
+            task_plan.status = "failed"
+            task_plan.error = str(e)
+            task_plan.completed_at = datetime.now()
+            self.task_planning_metrics['task_plans_failed'] += 1
+            raise
+    
+    def get_tools_info(self) -> List[Dict[str, Any]]:
+        """Get information about all available tools."""
+        tools_info = []
+        
+        # Add MCP tools
+        for tool_name, wrapper in self.mcp_tools.items():
+            tools_info.append({
+                'name': tool_name,
+                'description': wrapper.metadata.description,
+                'server': wrapper.metadata.server,
+                'category': wrapper.metadata.category,
+                'version': wrapper.metadata.version,
+                'parameters': wrapper.metadata.parameters
+            })
+        
+        # Add LlamaIndex tools
+        for tool_name, tool in self.llama_tools.items():
+            tools_info.append({
+                'name': tool_name,
+                'description': getattr(tool.metadata, 'description', ''),
+                'server': 'llamaindex',
+                'category': 'llamaindex',
+                'version': '1.0.0',
+                'parameters': {}
+            })
+        
+        return tools_info
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get agent usage statistics."""
-        uptime = datetime.now() - self.stats['start_time']
-        server_info = asyncio.run(self._get_server_stats())
+        """Get comprehensive agent statistics."""
+        uptime = (datetime.now() - self.statistics['start_time']).total_seconds()
         
         return {
-            'agent_stats': self.stats.copy(),
-            'uptime_seconds': uptime.total_seconds(),
-            'server_info': server_info
+            'agent_stats': self.statistics.copy(),
+            'task_planning_metrics': self.task_planning_metrics.copy(),
+            'tool_count': len(self.mcp_tools),
+            'server_count': len(self.mcp_servers),
+            'uptime_seconds': uptime
         }
     
     async def _get_server_stats(self) -> Dict[str, Any]:
-        """Get statistics from all servers."""
-        return self.server_manager.get_server_info()
+        """Get statistics for all MCP servers."""
+        server_stats = {}
+        
+        for server_name, server in self.mcp_servers.items():
+            try:
+                server_stats[server_name] = {
+                    'tool_count': len(server.tools),
+                    'statistics': getattr(server, 'get_statistics', lambda: {})()
+                }
+            except Exception as e:
+                server_stats[server_name] = {
+                    'error': str(e),
+                    'tool_count': 0,
+                    'statistics': {}
+                }
+        
+        return server_stats
+    
+    def get_active_task_plans(self) -> Dict[str, TaskPlan]:
+        """Get all active task plans."""
+        return self.active_task_plans.copy()
+    
+    def get_llm_info(self) -> Dict[str, Any]:
+        """Get information about the current LLM."""
+        if not self.llm:
+            return {"status": "no_llm_available"}
+        
+        try:
+            return {
+                "status": "available",
+                "model_name": getattr(self.llm, 'model', 'unknown'),
+                "type": type(self.llm).__name__,
+                "temperature": getattr(self.llm, 'temperature', 'unknown'),
+                "base_url": getattr(self.llm, 'base_url', 'unknown') if hasattr(self.llm, 'base_url') else 'local'
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
     
     async def shutdown(self) -> None:
         """Shutdown the agent and all servers."""
-        await self.server_manager.shutdown()
-        self.logger.info("AI-Showmaker Agent shutdown complete")
+        try:
+            self.logger.info("Shutting down agent...")
+            
+            # Shutdown MCP servers
+            for server_name, server in self.mcp_servers.items():
+                try:
+                    if hasattr(server, 'shutdown'):
+                        await server.shutdown()
+                    self.logger.info(f"Shutdown server: {server_name}")
+                except Exception as e:
+                    self.logger.error(f"Error shutting down {server_name}: {e}")
+            
+            # Shutdown MCP-Zero
+            if self.mcp_zero_discovery:
+                await self.mcp_zero_discovery.shutdown_all()
+            
+            self.logger.info("Agent shutdown complete")
+            
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {str(e)}")
+
+
+# Alias for backward compatibility
+AIShowmakerAgent = UnifiedAIShowmakerAgent
