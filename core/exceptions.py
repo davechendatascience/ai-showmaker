@@ -17,3 +17,7 @@ class ValidationError(AIShowmakerError):
 class ConnectionError(AIShowmakerError):
     """Exception raised when connection fails"""
     pass
+
+class SecurityError(AIShowmakerError):
+    """Exception raised when security validation fails"""
+    pass
