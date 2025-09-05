@@ -26,3 +26,6 @@ secrets.json
 # OS
 .DS_Store
 Thumbs.dbllama.cpp/
+
+# npm
+node_modules/

@@ -458,7 +458,10 @@ class WebSearchMCPServer(AIShowmakerMCPServer):
         for selector in selectors:
             result_containers = soup.select(selector)
             if result_containers:
+                self.logger.info(f"Found {len(result_containers)} results using selector: {selector}")
                 break
+        
+        self.logger.info(f"Total result containers found: {len(result_containers)}")
         
         # If no results found, try alternative approach
         if not result_containers:
@@ -479,14 +482,18 @@ class WebSearchMCPServer(AIShowmakerMCPServer):
         else:
             for container in result_containers[:max_results]:
                 try:
-                    # Try multiple selectors for title and URL
+                    # Try multiple selectors for title and URL - updated for current DuckDuckGo structure
                     title_selectors = [
                         'a.result__title', 
                         'a[data-testid="result-title"]', 
                         'h3 a', 
                         'a[class*="title"]',
                         'a[class*="result__title"]',
-                        'a[class*="web-result__title"]'
+                        'a[class*="web-result__title"]',
+                        'a',  # Fallback: any link in the container
+                        'h2 a',  # Another common pattern
+                        'h3 a',  # Another common pattern
+                        'h4 a'   # Another common pattern
                     ]
                     title_elem = None
                     for selector in title_selectors:
@@ -506,14 +513,17 @@ class WebSearchMCPServer(AIShowmakerMCPServer):
                     elif url.startswith('/l/?u='):
                         url = urllib.parse.unquote(url.split('u=')[1])
                     
-                    # Extract snippet
+                    # Extract snippet - updated selectors
                     snippet_selectors = [
                         '.result__snippet', 
                         '.result__a', 
                         'p', 
                         '.snippet',
                         '.result__snippet',
-                        '.web-result__snippet'
+                        '.web-result__snippet',
+                        '.result__body p',  # Look for paragraphs in result body
+                        'p',  # Any paragraph
+                        '.result__body'  # The entire result body as fallback
                     ]
                     snippet = ""
                     for selector in snippet_selectors:
@@ -522,12 +532,14 @@ class WebSearchMCPServer(AIShowmakerMCPServer):
                             snippet = snippet_elem.get_text(strip=True)
                             break
                     
-                    # Extract source
+                    # Extract source - updated selectors
                     source_selectors = [
                         '.result__url', 
                         '.result__domain', 
                         '.url',
-                        '.web-result__url'
+                        '.web-result__url',
+                        '.result__body .result__url',  # Nested selector
+                        '.result__body .url'  # Nested selector
                     ]
                     source = ""
                     for selector in source_selectors:
@@ -535,6 +547,24 @@ class WebSearchMCPServer(AIShowmakerMCPServer):
                         if source_elem:
                             source = source_elem.get_text(strip=True)
                             break
+                    
+                    # Additional validation and fallback
+                    if not title or not url:
+                        # Try to find any link in the container
+                        all_links = container.find_all('a', href=True)
+                        for link in all_links:
+                            href = link.get('href', '')
+                            if href.startswith('http') and not href.startswith('https://duckduckgo.com'):
+                                if not title:
+                                    title = link.get_text(strip=True)
+                                if not url:
+                                    url = href
+                                    # Clean URL
+                                    if url.startswith('/l/?uddg='):
+                                        url = urllib.parse.unquote(url.split('uddg=')[1])
+                                    elif url.startswith('/l/?u='):
+                                        url = urllib.parse.unquote(url.split('u=')[1])
+                                break
                     
                     if title and url and url.startswith('http'):
                         results.append({

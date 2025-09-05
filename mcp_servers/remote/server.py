@@ -256,8 +256,8 @@ class RemoteMCPServer(AIShowmakerMCPServer):
     async def initialize(self) -> None:
         """Initialize the remote server and register tools."""
         
-        # Initialize workspace
-        await self.repo_manager.initialize_workspace()
+        # Don't initialize workspace during discovery - do it lazily when tools are used
+        # await self.repo_manager.initialize_workspace()
         
         # Register repository management tools
         init_workspace_tool = MCPTool(
@@ -620,6 +620,53 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         )
         self.register_tool(list_directory_tool)
         
+        # Register session-based command execution tool
+        execute_commands_session_tool = MCPTool(
+            name="execute_commands_session",
+            description="Execute multiple commands in the same SSH session to maintain state. Call as: execute_commands_session(commands=['pwd', 'cd /tmp', 'pwd'], working_directory='/home/user')",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "commands": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of commands to execute in sequence"
+                    },
+                    "working_directory": {
+                        "type": "string",
+                        "description": "Working directory to start in (optional)",
+                        "default": None
+                    }
+                },
+                "required": ["commands"]
+            },
+            execute_func=self._execute_commands_in_session,
+            category="execution",
+            timeout=120
+        )
+        self.register_tool(execute_commands_session_tool)
+        
+        # Register development workflow tool
+        development_workflow_tool = MCPTool(
+            name="development_workflow",
+            description="Execute a complete development workflow in a single SSH session. Call as: development_workflow(workflow_type='web_app') or development_workflow(workflow_type='python_app')",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "workflow_type": {
+                        "type": "string",
+                        "description": "Type of workflow: 'web_app', 'python_app', or 'system_check'",
+                        "enum": ["web_app", "python_app", "system_check"],
+                        "default": "web_app"
+                    }
+                }
+            },
+            execute_func=self._execute_development_workflow,
+            category="development",
+            timeout=180
+        )
+        self.register_tool(development_workflow_tool)
+        
         self.logger.info(f"Remote MCP Server initialized with {len(self.tools)} tools")
     
     # Repository management methods
@@ -810,6 +857,106 @@ class RemoteMCPServer(AIShowmakerMCPServer):
             raise ConnectionError(os.environ.get("AWS_HOST", "unknown"), f"SSH error: {str(e)}")
         except Exception as e:
             raise Exception(f"Command execution failed: {str(e)}")
+
+    async def _execute_commands_in_session(self, commands: List[str], working_directory: str = None) -> str:
+        """
+        Execute multiple commands in the same SSH session to maintain state.
+        This allows commands like 'cd' to persist between subsequent commands.
+        """
+        try:
+            with self.ssh_pool.get_connection() as ssh:
+                results = []
+                
+                # Build a single command string that maintains state
+                if working_directory:
+                    command_chain = f"cd {working_directory} && "
+                else:
+                    command_chain = ""
+                
+                # Chain all commands with && to ensure they run in sequence and stop on failure
+                command_chain += " && ".join(commands)
+                
+                self.logger.info(f"Executing chained commands: {command_chain}")
+                
+                # Execute the entire command chain in one go
+                stdin, stdout, stderr = ssh.exec_command(command_chain, timeout=60)
+                
+                # Wait for completion and get exit code
+                exit_code = stdout.channel.recv_exit_status()
+                
+                # Read output
+                stdout_text = stdout.read().decode('utf-8', errors='replace')
+                stderr_text = stderr.read().decode('utf-8', errors='replace')
+                
+                # Format results
+                if exit_code == 0:
+                    results.append(f"✅ Command chain executed successfully (exit code: {exit_code})")
+                    if stdout_text:
+                        results.append(f"Output:\\n{stdout_text}")
+                else:
+                    results.append(f"❌ Command chain failed (exit code: {exit_code})")
+                    if stderr_text:
+                        results.append(f"Error:\\n{stderr_text}")
+                    if stdout_text:
+                        results.append(f"Output:\\n{stdout_text}")
+                
+                return f"Session execution completed:\\n\\n" + "\\n\\n".join(results)
+                
+        except paramiko.AuthenticationException:
+            raise ConnectionError(os.environ.get("AWS_HOST", "unknown"), "SSH authentication failed")
+        except paramiko.SSHException as e:
+            raise ConnectionError(os.environ.get("AWS_HOST", "unknown"), f"SSH error: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Session command execution failed: {str(e)}")
+
+    async def _execute_development_workflow(self, workflow_type: str = "web_app") -> str:
+        """
+        Execute a complete development workflow in a single SSH session.
+        This ensures all commands run in the same context.
+        """
+        try:
+            if workflow_type == "web_app":
+                commands = [
+                    "pwd",  # Check current directory
+                    "uname -a",  # Check system info
+                    "which node",  # Check if Node.js is available
+                    "which python3",  # Check if Python is available
+                    "which git",  # Check if git is available
+                    "mkdir -p webapp",  # Create project directory
+                    "cd webapp",  # Enter project directory
+                    "pwd",  # Verify we're in the right directory
+                    "git init",  # Initialize git repository
+                    "npm init -y",  # Initialize npm project
+                    "ls -la"  # List files to verify setup
+                ]
+            elif workflow_type == "python_app":
+                commands = [
+                    "pwd",
+                    "uname -a",
+                    "which python3",
+                    "which pip3",
+                    "which git",
+                    "mkdir -p pythonapp",
+                    "cd pythonapp",
+                    "pwd",
+                    "git init",
+                    "python3 -m venv venv",
+                    "ls -la"
+                ]
+            else:  # system_check
+                commands = [
+                    "pwd",
+                    "uname -a",
+                    "which node",
+                    "which python3",
+                    "which git",
+                    "echo 'System check completed'"
+                ]
+            
+            return await self._execute_commands_in_session(commands)
+            
+        except Exception as e:
+            raise Exception(f"Development workflow execution failed: {str(e)}")
     
     async def _write_file(self, filename: str, content: str) -> str:
         """Write file to remote server via SFTP."""

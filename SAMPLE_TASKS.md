@@ -1,1 +1,0 @@
-1. given a Leetcode question number, solve the leetcode question and provide the answer.
