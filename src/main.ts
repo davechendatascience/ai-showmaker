@@ -39,7 +39,9 @@ class InteractiveApp {
         try {
             // Initialize MCP Client
             console.log('🔍 Connecting to MCP servers...');
-            this.mcpClient = new HTTPMCPClient('http://localhost:8000');
+            const mcpBase = (process.env['MCP_HTTP_BASE'] || 'http://localhost:8000').replace(/\/+$/, '');
+            this.mcpClient = new HTTPMCPClient(mcpBase);
+            console.log(`   Using MCP HTTP base: ${mcpBase}`);
             await this.mcpClient.initialize();
             console.log(`   ✅ Connected to MCP servers (${this.mcpClient.getTools().length} tools available)`);
 

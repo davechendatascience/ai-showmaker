@@ -23,8 +23,11 @@ export class HTTPMCPClient {
   private tools: MCPToolWrapper[] = [];
   private baseUrl: string;
 
-  constructor(baseUrl: string = 'http://localhost:8000') {
-    this.baseUrl = baseUrl;
+  constructor(baseUrl?: string) {
+    const envBase = (process.env['MCP_HTTP_BASE'] || '').trim();
+    const effective = (baseUrl && baseUrl.trim()) || envBase || 'http://localhost:8000';
+    // Normalize: drop trailing slashes
+    this.baseUrl = effective.replace(/\/+$/, '');
   }
 
   /**
@@ -90,18 +93,64 @@ export class HTTPMCPClient {
         try {
           console.log(`🛠️ Executing tool ${tool.name} via HTTP with params:`, params);
           
-          const response = await fetch(`${this.baseUrl}/execute`, {
+          const body = JSON.stringify({
+            tool_name: tool.name,
+            // Ensure params is at least an empty object
+            params: params ?? {},
+          });
+
+          const doFetch = async () => fetch(`${this.baseUrl}/execute`, {
             method: 'POST',
+            // Hint the simple Python server not to reuse the socket
             headers: {
               'Content-Type': 'application/json',
+              'Connection': 'close',
             },
-            body: JSON.stringify({
-              tool_name: tool.name,
-              params: params,
-            }),
+            body,
           });
+
+          // Retry strategy: handle thrown socket errors and certain 5xx once
+          let response: Response;
+          for (let attempt = 1; ; attempt++) {
+            try {
+              response = await doFetch();
+              if (!response.ok && (response.status === 502 || response.status === 503 || response.status === 504)) {
+                if (attempt >= 2) break;
+                await new Promise(r => setTimeout(r, 150));
+                continue;
+              }
+              break;
+            } catch (err: any) {
+              const code = err?.cause?.code || err?.code;
+              const msg = String(err?.message || err);
+              const isSocketClose = code === 'UND_ERR_SOCKET' || msg.includes('fetch failed') || msg.includes('other side closed');
+              if (attempt >= 2 || !isSocketClose) {
+                throw err;
+              }
+              await new Promise(r => setTimeout(r, 150));
+              continue;
+            }
+          }
           
           if (!response.ok) {
+            // Fallback via GET (proxy supports /execute_get)
+            try {
+              const qs = new URLSearchParams({
+                tool_name: tool.name,
+                params: JSON.stringify(params ?? {}),
+              }).toString();
+              const getResp = await fetch(`${this.baseUrl}/execute_get?${qs}`, {
+                method: 'GET',
+                headers: { 'Connection': 'close' },
+              });
+              if (getResp.ok) {
+                const resJson = await getResp.json();
+                console.log(`?? POST failed; GET fallback succeeded for ${tool.name}`);
+                return resJson;
+              }
+            } catch (_) {
+              // ignore and throw below
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           

@@ -15,7 +15,8 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "monitor:ui": "node monitoring/ui/server.js"
   },
   "keywords": [
     "ai",

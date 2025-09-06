@@ -534,7 +534,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register existing command execution tool
         execute_command_tool = MCPTool(
             name="execute_command",
-            description="Execute commands on remote server. Call as: execute_command(command='ls -la') or execute_command(command='python script.py', input_data='user input')",
+            description="Execute a single command on the remote server. MUST use key 'command' (string). For multiple commands, use 'execute_commands_session' with 'commands': ['...']. Example: PARAMETERS: {\"command\": \"ls -la\"}",
             parameters={
                 "type": "object",
                 "properties": {
@@ -559,7 +559,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file writing tool
         write_file_tool = MCPTool(
             name="write_file", 
-            description="Write files to remote server. Call as: write_file(filename='test.txt', content='Hello World')",
+            description="Write a file under the workspace/repository. MUST use key 'filename' (not 'path'/'file_path'). Required: 'filename', 'content'. Example: PARAMETERS: {\"filename\":\"index.html\",\"content\":\"<html>...</html>\"}",
             parameters={
                 "type": "object",
                 "properties": {
@@ -583,7 +583,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register file reading tool
         read_file_tool = MCPTool(
             name="read_file",
-            description="Read files from remote server. Call as: read_file(filename='script.py') or read_file(filename='data.txt')", 
+            description="Read a file under the workspace/repository. MUST use key 'filename' (not 'path'/'file_path'). Example: PARAMETERS: {\"filename\":\"index.html\"}", 
             parameters={
                 "type": "object",
                 "properties": {
@@ -603,7 +603,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register directory listing tool
         list_directory_tool = MCPTool(
             name="list_directory",
-            description="List directory contents on remote server. Call as: list_directory() for current directory or list_directory(path='/home/user')",
+            description="List directory contents. Optional key: 'path' (string). Example: PARAMETERS: {\"path\":\"/home/ec2-user/workspace\"}",
             parameters={
                 "type": "object", 
                 "properties": {
@@ -623,7 +623,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         # Register session-based command execution tool
         execute_commands_session_tool = MCPTool(
             name="execute_commands_session",
-            description="Execute multiple commands in the same SSH session to maintain state. Call as: execute_commands_session(commands=['pwd', 'cd /tmp', 'pwd'], working_directory='/home/user')",
+            description="Execute multiple commands in the SAME SSH session (stateful). MUST use key 'commands': ['...']. Optional 'working_directory'. Example: PARAMETERS: {\"commands\":[\"pwd\",\"ls -la\"],\"working_directory\":\"/home/ec2-user/workspace\"}",
             parameters={
                 "type": "object",
                 "properties": {
@@ -967,32 +967,30 @@ class RemoteMCPServer(AIShowmakerMCPServer):
             with self.ssh_pool.get_connection() as ssh:
                 sftp = ssh.open_sftp()
                 
-                # Create directory if it doesn't exist
-                file_path = Path(filename)
-                if file_path.parent != Path('.'):
-                    try:
-                        sftp.mkdir(str(file_path.parent))
-                    except FileExistsError:
-                        pass  # Directory already exists
-                    except Exception:
-                        # Try to create parent directories recursively
-                        try:
-                            ssh.exec_command(f"mkdir -p {file_path.parent}")
-                        except:
-                            pass  # Continue anyway, might still work
+                # Resolve a safe absolute target path under current repo or workspace (force POSIX paths)
+                from pathlib import PurePosixPath
+                base_dir = self.repo_manager.current_repo or self.repo_manager.workspace_path
+                target_path = str(PurePosixPath(base_dir) / filename)
+
+                # Ensure parent directories exist
+                parent_dir = str(PurePosixPath(target_path).parent)
+                try:
+                    ssh.exec_command(f"mkdir -p {parent_dir}")
+                except Exception:
+                    pass
                 
                 # Write file
-                with sftp.open(filename, 'w') as f:
+                with sftp.open(target_path, 'w') as f:
                     f.write(content)
                 
                 # Get file size for confirmation
-                stat = sftp.stat(filename)
+                stat = sftp.stat(target_path)
                 file_size = stat.st_size
                 
                 sftp.close()
                 
-                self.logger.info(f"Wrote file: {filename} ({file_size} bytes)")
-                return f"File '{filename}' written successfully ({file_size} bytes)"
+                self.logger.info(f"Wrote file: {target_path} ({file_size} bytes)")
+                return f"File '{target_path}' written successfully ({file_size} bytes)"
                 
         except SecurityError as e:
             raise e
@@ -1006,14 +1004,17 @@ class RemoteMCPServer(AIShowmakerMCPServer):
                 sftp = ssh.open_sftp()
                 
                 try:
-                    with sftp.open(filename, 'r') as f:
+                    from pathlib import PurePosixPath
+                    base_dir = self.repo_manager.current_repo or self.repo_manager.workspace_path
+                    target_path = str(PurePosixPath(base_dir) / filename)
+                    with sftp.open(target_path, 'r') as f:
                         content = f.read()
                     
-                    self.logger.info(f"Read file: {filename} ({len(content)} bytes)")
+                    self.logger.info(f"Read file: {target_path} ({len(content)} bytes)")
                     return content
                     
                 except FileNotFoundError:
-                    raise Exception(f"File '{filename}' not found")
+                    raise Exception(f"File '{target_path}' not found")
                 finally:
                     sftp.close()
                     

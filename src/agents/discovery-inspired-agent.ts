@@ -245,9 +245,11 @@ ${this.formatToolsByServer(context.availableTools)}
 
 # Constraints:
 1. Select only one tool per action
-2. Provide all required parameters for the tool
+2. Provide ALL required parameters using the EXACT schema keys (do NOT invent synonyms)
 3. Be precise with parameter values
 4. Consider the user's original request
+5. File tools: the key is "filename" (NOT "path" or "file_path")
+6. Multiple commands: use "execute_commands_session" with "commands": ["..."] (NOT "execute_command")
 
 # Output Format:
 You MUST provide your action in this EXACT format:
@@ -267,6 +269,14 @@ REASONING: I need to calculate the mathematical expression 15 * 23.
 TOOL: create_todos
 PARAMETERS: {"todos": [{"id": "task1", "content": "Complete project setup", "status": "pending"}]}
 REASONING: I need to create a todo list for task management.
+
+TOOL: write_file
+PARAMETERS: {"filename":"index.html","content":"<html>...</html>"}
+REASONING: I need to create an HTML entry file. The schema requires "filename" and "content".
+
+TOOL: execute_commands_session
+PARAMETERS: {"commands":["cd /home/ec2-user/workspace","git status"]}
+REASONING: I need to run multiple commands while preserving state.
 
 # CRITICAL: You must select a valid tool from the list above. Do not select "None" or make up tool names.`;
 
@@ -339,11 +349,13 @@ REASONING: I need to create a todo list for task management.
             console.log(`      🛠️ Executing ${analysis.selectedTool} with params:`, analysis.parameters);
             
             const result = await this.mcpClient.executeTool(analysis.selectedTool, analysis.parameters);
-            
+            const ok = typeof (result?.success) === 'boolean' ? Boolean(result.success) : true;
+            const errorMsg = (result && typeof result.error === 'string') ? result.error : undefined;
             return {
-                success: true,
+                success: ok,
                 result: result,
-                tool: analysis.selectedTool
+                tool: analysis.selectedTool,
+                error: ok ? undefined : (errorMsg || 'Tool reported failure')
             };
 
         } catch (error) {
@@ -574,11 +586,19 @@ ${isInformationTask ?
             'search_web', 'extract_content', 'search_and_extract', 'get_search_suggestions'
         ];
 
-        // Look for exact tool name matches
-        for (const toolName of toolNames) {
-            if (rawTool.toLowerCase().includes(toolName)) {
-                return toolName;
-            }
+        const lower = rawTool.toLowerCase().trim();
+        // Prefer exact match
+        for (const name of toolNames) {
+            if (lower === name) return name;
+        }
+        // Prefer word-boundary match
+        for (const name of toolNames) {
+            const re = new RegExp(`(^|[^a-zA-Z0-9_])${name}([^a-zA-Z0-9_]|$)`);
+            if (re.test(lower)) return name;
+        }
+        // Fallback: longest-first substring match (prevents mapping session->command)
+        for (const name of [...toolNames].sort((a,b)=>b.length-a.length)) {
+            if (lower.includes(name)) return name;
         }
 
         // Extract from patterns like "use the calculate tool"
@@ -625,7 +645,8 @@ ${isInformationTask ?
 
         try {
             // Try to parse as JSON
-            return JSON.parse(paramsSection);
+            const parsed = JSON.parse(paramsSection);
+            return this.applyParameterAliases(parsed, toolName);
         } catch {
             // Fallback to simple key-value parsing
             const params: any = {};
@@ -636,8 +657,25 @@ ${isInformationTask ?
                     params[key.trim()] = value.trim();
                 }
             }
-            return params;
+            return this.applyParameterAliases(params, toolName);
         }
+    }
+
+    // Normalize/alias common parameter names the LLM may use
+    private applyParameterAliases(params: any, toolName?: string): any {
+        const p = { ...(params || {}) };
+        const t = (toolName || '').toLowerCase();
+        if (t === 'write_file' || t === 'read_file') {
+            if (p.file_path && !p.filename) {
+                p.filename = p.file_path;
+                delete p.file_path;
+            }
+        }
+        if (t === 'execute_command' && Array.isArray(p.commands) && !p.command) {
+            // Signal the caller to use the session variant by keeping commands array
+            // Final routing happens in normalizeToolAndParams
+        }
+        return p;
     }
 
     /**
