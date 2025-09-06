@@ -50,7 +50,7 @@ GOOGLE_API_KEY=your_google_api_key_here
 # Optional (for remote server features)
 AWS_HOST=your.remote.server.com
 AWS_USER=your_username
-PEM_PATH=path/to/your/private_key.pem
+AWS_KEY_PATH=path/to/your/private_key.pem
 ```
 
 ## 🎯 Basic Usage
@@ -198,7 +198,7 @@ ai-showmaker/
 - `GOOGLE_API_KEY`: Required for agent LLM
 - `AWS_HOST`: Remote server hostname
 - `AWS_USER`: Remote server username  
-- `PEM_PATH`: Path to SSH private key
+- `AWS_KEY_PATH`: Path to SSH private key
 - `PYTHONIOENCODING`: Set to `utf-8` for emoji support
 
 ### Config Sources (Priority Order)

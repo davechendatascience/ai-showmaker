@@ -1,22 +1,16 @@
 """
-AI-Showmaker Core Module
-
-This module contains the core agent logic, configuration management,
-and base classes for the AI-Showmaker development agent framework.
+Core module for AI-Showmaker MCP servers
+Minimal implementation to support MCP server functionality
 """
 
-# Don't import agent here to avoid circular imports
-# from .agent import AIShowmakerAgent  
-from .config import ConfigManager
-from .exceptions import AIShowmakerError, ToolError, ConnectionError
+from .exceptions import ToolError, ValidationError, ConnectionError, SecurityError
 
 __version__ = "2.0.0"
 __author__ = "AI-Showmaker Team"
 
 __all__ = [
-    # 'AIShowmakerAgent',  # Don't export to avoid circular imports
-    'ConfigManager', 
-    'AIShowmakerError',
     'ToolError',
-    'ConnectionError'
+    'ValidationError',
+    'ConnectionError',
+    'SecurityError'
 ]

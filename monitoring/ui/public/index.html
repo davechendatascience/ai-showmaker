@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI-Showmaker Monitoring UI</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>AI-Showmaker Monitoring</h1>
+      <div id="statuses">
+        <span id="bridge-status" class="status">Bridge: unknown</span>
+        <span id="app-status" class="status">App: unknown</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="controls">
+        <div class="group">
+          <h2>Bridge</h2>
+          <button id="start-bridge">Start Bridge</button>
+          <button id="stop-bridge" class="secondary">Stop Bridge</button>
+          <div class="info small" id="bridge-info"></div>
+        </div>
+        <div class="group">
+          <h2>Main App</h2>
+          <button id="start-app">Start App</button>
+          <button id="stop-app" class="secondary">Stop App</button>
+          <div class="query">
+            <input id="user-query" placeholder="Type a user task/query..." />
+            <button id="send-query">Send</button>
+          </div>
+          <div class="info small" id="app-info"></div>
+        </div>
+        <div class="group">
+          <h2>Servers</h2>
+          <button id="refresh-servers">Refresh</button>
+          <pre id="servers" class="panel small"></pre>
+        </div>
+      </section>
+
+      <section class="logs">
+        <div class="log-pane">
+          <div class="pane-title">Bridge Logs</div>
+          <pre id="bridge-log" class="terminal"></pre>
+        </div>
+        <div class="log-pane">
+          <div class="pane-title">App Logs</div>
+          <pre id="app-log" class="terminal"></pre>
+        </div>
+        <div class="log-pane">
+          <div class="pane-title">Remote Server Terminal (read-only)</div>
+          <pre id="remote-log" class="terminal"></pre>
+        </div>
+        <div class="log-pane">
+          <div class="pane-title">Interactive SSH Session</div>
+          <div class="ssh-controls">
+            <input id="ssh-cwd" placeholder="Optional: start in directory (e.g., /home/ec2-user)" />
+            <button id="ssh-start">Start Session</button>
+            <button id="ssh-close" class="secondary">Close Session</button>
+          </div>
+          <pre id="ssh-stream" class="terminal"></pre>
+          <div class="ssh-input">
+            <input id="ssh-input" placeholder="Type command and press Enter (sends newline)" />
+          </div>
+          <div class="info small" id="ssh-info"></div>
+        </div>
+      </section>
+
+      <section class="tool-runner">
+        <div class="log-pane">
+          <div class="pane-title">Tool Runner</div>
+          <div class="tool-controls">
+            <label>
+              Tool:
+              <select id="tool-select"></select>
+            </label>
+            <button id="refresh-tools" class="secondary">Refresh</button>
+          </div>
+          <div class="tool-layout">
+            <div class="tool-col">
+              <div class="sub-title">Parameters (JSON)</div>
+              <textarea id="tool-params" spellcheck="false" placeholder="{ }"></textarea>
+              <div class="btn-row">
+                <button id="params-pretty" class="secondary">Pretty</button>
+                <button id="params-clear" class="secondary">Clear</button>
+                <button id="run-tool">Run Tool</button>
+              </div>
+            </div>
+            <div class="tool-col">
+              <div class="sub-title">Schema</div>
+              <pre id="tool-schema" class="panel small"></pre>
+              <div class="sub-title">Result</div>
+              <pre id="tool-output" class="panel"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>

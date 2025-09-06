@@ -1,243 +1,188 @@
 # AI-Showmaker
 
-🤖 **Intelligent AI Development Assistant**
-
-An advanced AI agent with **Intelligent Task Planning** powered by **MCP (Model Context Protocol) inspired architecture** and **LlamaIndex integration**. Automatically detects complex multi-step tasks and executes them systematically with built-in progress tracking, output validation, and context management.
+A TypeScript-based AI agent framework that integrates with MCP (Model Context Protocol) servers and LangChain for intelligent task execution.
 
 ## 🏗️ Architecture
 
-**Intelligent Agent System** - 3 agent types, 4 specialized servers, 22+ professional tools:
+### Core Components
 
-### 🧠 **Intelligent Task Planning**
-- ✅ **Automatic Task Detection**: Identifies complex multi-step tasks
-- ✅ **Domain-Specific Planning**: Flask, deployment, monitoring, data processing
-- ✅ **Systematic Execution**: Step-by-step task execution with progress tracking
-- ✅ **Output Validation**: Intelligent pattern matching and error detection
-- ✅ **Error Recovery**: Graceful failure handling with detailed reporting
+- **LangGraph MCP Agent** (`src/agents/langgraph-mcp-agent.ts`) - Main agent that handles complex task orchestration
+- **HTTP MCP Client** (`src/mcp/http-mcp-client.ts`) - Communicates with Python MCP servers via HTTP
+- **Rate-Limited LLM** (`src/llm/rate-limited-llm.ts`) - Inference.net LLM with rate limiting
+- **Session Manager** (`src/core/session-manager.ts`) - Manages conversation context and history
 
-### 🤖 **Agent Types**
-- ✅ **LangChain Agent**: Traditional MCP integration
-- ✅ **LlamaIndex Agent**: Enhanced LLM capabilities with inference.net
-- ✅ **Intelligent Agent**: Advanced task planning with automatic execution
+### Key Features
 
-### 🧮 **Calculation Server** (4 Tools)
-- ✅ **Safe Mathematical Evaluation**: AST-based parsing (no dangerous `eval()`)
-- ✅ **Advanced Functions**: Trigonometry, logarithms, factorials, GCD/LCM  
-- ✅ **Variable Management**: Multi-step calculations with persistent variables
-- ✅ **Scientific Constants**: π, e, τ, ∞ and comprehensive math library
+✅ **Simple Query Input** - Just provide the initial task, no complex instructions  
+✅ **LangGraph Workflow** - Automatic tool selection and orchestration  
+✅ **MCP Integration** - 39 tools available from Python servers  
+✅ **Session Management** - Conversation continuity and context  
+✅ **Rate Limiting** - Handles API limits gracefully  
+✅ **TypeScript** - Full type safety and modern development experience  
 
-### 🌐 **Remote Server** (4 Tools)  
-- ✅ **SSH Operations**: Secure command execution with connection pooling
-- ✅ **Interactive Programs**: Full support for programs requiring user input
-- ✅ **SFTP File Management**: Secure file read/write with path validation
-- ✅ **Directory Operations**: List, navigate, and manage remote filesystems
+## 🚀 Quick Start
 
-### 🔧 **Development Server** (8 Tools)
-- ✅ **Git Integration**: Status, add, commit, log, diff operations
-- ✅ **File Search**: Pattern matching and content search across projects  
-- ✅ **Package Management**: Python package installation and dependency management
-- ✅ **Development Workflow**: Complete version control and project management
+### Prerequisites
 
-### 📋 **Monitoring Server** (6 Tools)
-- ✅ **Todo Lists**: Create and manage complex multi-step task tracking
-- ✅ **Progress Monitoring**: Real-time status updates with emoji indicators  
-- ✅ **Session Management**: Maintain context across long development sessions
-- ✅ **Agent Memory**: Persistent task history and progress analytics
+- Node.js 18+
+- Python 3.11+
+- Inference.net API key
 
-## ⚡ Quick Start
+### Setup
 
-```bash
-# Clone and setup
-git clone https://github.com/davechendatascience/ai-showmaker.git
-cd ai-showmaker
-python -m venv venv && source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+1. **Clone and install dependencies:**
+   ```bash
+   git clone <repository>
+   cd ai-showmaker
+   npm install
+   ```
 
-# Configure (copy .env.example to .env and add your keys)
-cp .env.example .env
+2. **Set up Python environment:**
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate  # Windows
+   pip install -r requirements.txt
+   ```
 
-# Run interactive demo
-python demo_mcp.py
+3. **Configure environment:**
+   ```bash
+   cp env.example .env
+   # Edit .env with your INFERENCE_NET_KEY
+   ```
 
-# Or run the full agent
-python main.py
+4. **Start the MCP bridge:**
+   ```bash
+   python full_mcp_bridge.py
+   ```
+
+5. **Run the agent:**
+   ```bash
+   npx ts-node tests/integration/test_langgraph_mcp_agent.ts
+   ```
+
+## 🧠 How It Works
+
+### LangGraph MCP Agent
+
+The core agent follows the **LangGraph workflow pattern**:
+
+1. **Input**: Simple task query (e.g., "Solve LeetCode problem 1: Two Sum")
+2. **Tool Discovery**: Automatically discovers 39 available MCP tools
+3. **LLM Decision**: LLM decides which tools to use and when
+4. **Tool Execution**: Executes tools via HTTP MCP bridge
+5. **Response**: Provides natural language response with results
+
+### Example Usage
+
+```typescript
+const agent = new LangGraphMCPAgent(mcpClient, llm, sessionManager);
+
+// Simple task - LangGraph handles the rest
+const result = await agent.executeComplexTask(
+    "Help me solve a math problem: What is 15 * 23?", 
+    sessionId
+);
 ```
 
-## 🎯 Example Capabilities
+### Available Tools
 
-### 🧠 Intelligent Task Planning
-```
-"Create a Flask web application with:
-1. Basic web server on port 5000
-2. Welcome page with current time
-3. Health check endpoint
-4. Basic logging
-5. Requirements.txt with Flask dependency
-6. Startup script
-7. Test the application startup"
+The agent has access to 39 tools across 5 MCP servers:
 
-→ Agent automatically detects this as a complex task and executes all 6 steps systematically!
-```
+- **Calculation Server**: Math operations, variable management
+- **Development Server**: File operations, code execution
+- **Web Search Server**: Web search capabilities
+- **Remote Server**: Remote execution and monitoring
+- **Monitoring Server**: System monitoring and logging
 
-### 🧪 Multi-Server Workflows
-```
-"Create a todo list for building a web calculator, then implement it step by step:
-1. Plan the architecture 
-2. Write the Python Flask backend
-3. Create the HTML frontend  
-4. Deploy to the remote server
-5. Test the complete application"
-```
+## 🧪 Testing
 
-### 🔬 Complex Development Tasks  
-```
-"Check the git status, calculate the optimal server configuration for 100 users, 
-create a deployment script with those specifications, and track progress with todos"
-```
+### Core Tests
 
-### 🎛️ Interactive Programming
-```
-"Create a Python script that asks for user preferences, deploy it to the server,
-then run it interactively with sample inputs"
-```
+- `test_langgraph_mcp_agent.ts` - Main agent functionality
+- `test_agent_demo.ts` - Basic agent capabilities
+- `test_mock_llm.ts` - Mock LLM testing
+- `test_inference_net_direct.ts` - Direct LLM testing
 
-## 🛡️ Enterprise Security
+### Python MCP Bridge Tests
 
-- **🚫 No `eval()`**: Safe AST-based mathematical evaluation
-- **🛡️ Path Traversal Protection**: Comprehensive file path validation  
-- **🔐 SSH Key Authentication**: No password-based authentication
-- **✅ Input Validation**: All parameters validated against JSON schemas
-- **🔒 Secret Management**: Environment-based configuration system
-- **⏱️ Resource Management**: Connection pooling with proper cleanup
-
-## 🧪 Comprehensive Testing
-
-### Test Organization
-```
-tests/
-├── mcp/           # Unit tests for individual MCP servers
-├── integration/   # Full agent system testing  
-├── scenarios/     # Real-world usage patterns
-└── unit/         # Component-level testing
-```
-
-### Test Coverage
-- **✅ 20+ Test Files**: Comprehensive validation of all functionality
-- **✅ Intelligent Task Planning Tests**: Complex task detection and execution
-- **✅ LlamaIndex Integration Tests**: Enhanced LLM capabilities
-- **✅ Output Validation Tests**: Pattern matching and error detection
-- **✅ Offline Testing**: MCP servers can be tested without internet
-- **✅ Integration Testing**: Full agent workflows with todo tracking
-- **✅ Security Testing**: Path traversal and input validation tests
-- **✅ Performance Testing**: Connection pooling and async operations
+- `test_all_servers.py` - All MCP servers
+- `test_bridge_simple.py` - Basic bridge functionality
+- `test_calculation_direct.py` - Calculation server
 
 ## 📁 Project Structure
 
 ```
-ai-showmaker/
-├── 🎯 core/              # Agent orchestration & configuration
-├── 🏗️ mcp_servers/       # 4 specialized MCP servers
-│   ├── calculation/      # Mathematical operations
-│   ├── remote/          # SSH/SFTP operations  
-│   ├── development/     # Git & file operations
-│   └── monitoring/      # Todo & session management
-├── 🧪 tests/            # Comprehensive test suite
-├── 📚 docs/             # API docs, guides, & architecture
-├── 🚀 main.py           # Primary entry point
-└── 🎮 demo_mcp.py       # Interactive demonstrations
+src/
+├── agents/
+│   └── langgraph-mcp-agent.ts    # Main LangGraph agent
+├── core/
+│   ├── config.ts                 # Configuration management
+│   └── session-manager.ts        # Session and context management
+├── llm/
+│   ├── inference-net-llm.ts      # Inference.net LLM integration
+│   ├── mock-llm.ts              # Mock LLM for testing
+│   └── rate-limited-llm.ts      # Rate-limited LLM wrapper
+├── mcp/
+│   └── http-mcp-client.ts       # HTTP MCP client
+└── types/
+    └── index.ts                 # TypeScript type definitions
+
+tests/integration/               # Integration tests
+mcp_servers/                    # Python MCP servers
+full_mcp_bridge.py             # HTTP bridge to Python servers
 ```
 
-## ⚙️ Configuration
+## 🔧 Development
 
-Choose one of these configuration approaches (priority order):
+### Adding New Tools
 
-**Option 1: Environment Variables (Production)**
+1. Create a new MCP server in `mcp_servers/`
+2. Register it in `full_mcp_bridge.py`
+3. The agent automatically discovers new tools
+
+### Adding New LLM Providers
+
+1. Extend the base LLM class in `src/llm/`
+2. Implement the required interface methods
+3. Add rate limiting if needed
+
+### Testing
+
 ```bash
-export GOOGLE_API_KEY="your-api-key-here"
-export AWS_HOST="your-ec2-host"
-export AWS_USER="ec2-user"
-export PEM_PATH="secrets/your-key.pem"
+# Run all TypeScript tests
+npm test
+
+# Run specific test
+npx ts-node tests/integration/test_langgraph_mcp_agent.ts
+
+# Run Python MCP tests
+python tests/integration/test_all_servers.py
 ```
 
-**Option 2: .env file (Development)**
-```bash
-cp .env.example .env
-# Edit .env with your configuration values
-```
+## 🎯 Core Principles
 
-**Option 3: JSON Configuration (Flexible)**
-```json
-{
-  "google_api_key": "your-api-key",
-  "aws_host": "your-ec2-host",
-  "aws_user": "ec2-user",
-  "pem_path": "secrets/your-key.pem"
-}
-```
+1. **Simple Input** - Just provide the task, let LangGraph handle the workflow
+2. **MCP Integration** - Leverage Model Context Protocol for tool connectivity
+3. **TypeScript First** - Full type safety and modern development
+4. **Session Management** - Maintain context across conversations
+5. **Rate Limiting** - Handle API limits gracefully
 
-## 🧪 Running Tests
+## 📊 Current Status
 
-**Windows (with UTF-8 support):**
-```bash
-# Ensure virtual environment is activated
-venv\Scripts\activate
+✅ **Working**: LangGraph MCP Agent with 39 tools  
+✅ **Working**: Session management and conversation continuity  
+✅ **Working**: Rate-limited LLM integration  
+✅ **Working**: HTTP MCP bridge to Python servers  
+✅ **Working**: TypeScript type safety and modern tooling  
 
-# Set encoding for Unicode output (emojis in logs)
-set PYTHONIOENCODING=utf-8
+## 🤝 Contributing
 
-# Run comprehensive test suite (recommended)
-python -X utf8 run_comprehensive_tests.py
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
-# Run legacy test suite (basic MCP servers only)
-python -X utf8 run_tests.py
+## 📄 License
 
-# Run individual integration tests
-python -X utf8 "tests\integration\test_intelligent_task_planning.py"
-```
-
-**Linux/Mac:**
-```bash
-# Ensure virtual environment is activated
-source venv/bin/activate
-
-# Run comprehensive test suite (recommended)
-python run_comprehensive_tests.py
-
-# Run legacy test suite (basic MCP servers only)
-python run_tests.py
-
-# Run individual integration tests
-python tests/integration/test_intelligent_task_planning.py
-```
-
-**Test Categories:**
-- `tests/mcp/` - Unit tests for individual MCP servers
-- `tests/integration/` - Full agent system testing  
-- `tests/scenarios/` - Real-world usage patterns
-
-## 🔄 Development Workflow
-
-**Branch Strategy:**
-- `main` - Production releases
-- `develop` - Active development (use for new features)
-
-**Making Changes:**
-```bash
-# Switch to develop branch
-git checkout develop
-
-# Make your changes, then commit
-git add .
-git commit -m "Your change description"
-
-# Push to develop branch
-git push origin develop
-```
-
-## 📊 Performance & Statistics
-
-- **⚡ Startup Time**: ~2-3 seconds (all servers initialized)
-- **🎯 Tool Execution**: Sub-second response for most operations  
-- **💾 Memory Efficient**: Async operations with connection pooling
-- **📈 Scalable**: Modular architecture supports easy expansion
-- **🔄 Session Tracking**: Built-in metrics and progress monitoring
+MIT License - see LICENSE file for details.

@@ -1,35 +1,23 @@
 """
-Custom exceptions for AI-Showmaker agent framework.
+Exception classes for AI-Showmaker MCP servers
 """
 
 class AIShowmakerError(Exception):
-    """Base exception for all AI-Showmaker related errors."""
+    """Base exception for AI-Showmaker errors"""
     pass
 
 class ToolError(AIShowmakerError):
-    """Exception raised when a tool fails to execute properly."""
-    
-    def __init__(self, tool_name: str, message: str, details: str = None):
-        self.tool_name = tool_name
-        self.details = details
-        super().__init__(f"Tool '{tool_name}' failed: {message}")
-
-class ConnectionError(AIShowmakerError):
-    """Exception raised when connection to remote server fails."""
-    
-    def __init__(self, host: str, message: str, port: int = 22):
-        self.host = host
-        self.port = port
-        super().__init__(f"Connection to {host}:{port} failed: {message}")
-
-class ConfigurationError(AIShowmakerError):
-    """Exception raised when configuration is invalid or missing."""
-    pass
-
-class SecurityError(AIShowmakerError):
-    """Exception raised when security validation fails."""
+    """Exception raised when tool execution fails"""
     pass
 
 class ValidationError(AIShowmakerError):
-    """Exception raised when input validation fails."""
+    """Exception raised when validation fails"""
+    pass
+
+class ConnectionError(AIShowmakerError):
+    """Exception raised when connection fails"""
+    pass
+
+class SecurityError(AIShowmakerError):
+    """Exception raised when security validation fails"""
     pass

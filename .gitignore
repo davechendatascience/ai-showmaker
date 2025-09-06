@@ -7,6 +7,7 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv/
 
 # Secrets and sensitive files
 secrets/
@@ -18,9 +19,13 @@ secrets.json
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbs.dbllama.cpp/
+
+# npm
+node_modules/
