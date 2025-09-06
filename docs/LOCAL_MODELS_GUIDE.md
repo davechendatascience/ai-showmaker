@@ -28,7 +28,7 @@ Our infrastructure now supports local models through:
    ```bash
    AWS_HOST=your-ec2-instance.compute.amazonaws.com
    AWS_USER=ec2-user
-   PEM_PATH=path/to/your/key.pem
+   AWS_KEY_PATH=path/to/your/key.pem
    ```
 
 2. **Install Dependencies**:

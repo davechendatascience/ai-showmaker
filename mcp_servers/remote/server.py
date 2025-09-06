@@ -177,7 +177,7 @@ class SSHConnectionPool:
     
     def _create_connection(self) -> paramiko.SSHClient:
         """Create a new SSH connection."""
-        key = paramiko.Ed25519Key.from_private_key_file(os.environ["PEM_PATH"])
+        key = paramiko.Ed25519Key.from_private_key_file(os.environ["AWS_KEY_PATH"])
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(

@@ -83,7 +83,7 @@ export class LangGraphMCPAgent {
             `${msg.role}: ${msg.content}`
         ).join('\n');
 
-        // Simple system prompt - let LangGraph handle tool orchestration
+        // Enhanced system prompt to encourage tool usage
         const systemPrompt = `You are an AI assistant with access to tools. 
 You can use these tools to help complete tasks. 
 Think step by step and use tools when needed.
@@ -94,7 +94,12 @@ ${context ? `Previous context:\n${context}\n` : ''}
 
 Task: ${taskQuery}
 
-Respond naturally and use tools when helpful.`;
+IMPORTANT: When you want to use a tool, be explicit about it. Say things like:
+- "I can use the calculate tool to solve this math problem"
+- "I can use the search_web tool to find information"
+- "I can use the create_todos tool to make a todo list"
+
+This helps the system understand when you want to use tools.`;
 
         const messages = [new HumanMessage(systemPrompt)];
 
@@ -136,32 +141,107 @@ Respond naturally and use tools when helpful.`;
 
     /**
      * Extract tool calls from LLM response
-     * Simple pattern matching for tool usage
+     * Enhanced pattern matching for tool usage
      */
     private extractToolCalls(responseText: string): Array<{tool: string, parameters: any}> {
         const toolCalls: Array<{tool: string, parameters: any}> = [];
         
-        // Look for tool usage patterns
+        // Look for tool usage patterns - more comprehensive
         const toolPatterns = [
-            /use tool (\w+)/gi,
+            /use the (\w+) tool/gi,
+            /use (\w+) tool/gi,
             /call (\w+)/gi,
             /execute (\w+)/gi,
-            /run (\w+)/gi
+            /run (\w+)/gi,
+            /I can use the (\w+) tool/gi,
+            /I can use (\w+) tool/gi,
+            /let me use the (\w+) tool/gi,
+            /let me use (\w+) tool/gi
         ];
 
         for (const pattern of toolPatterns) {
             const matches = responseText.matchAll(pattern);
             for (const match of matches) {
                 if (match[1]) {
+                    const toolName = match[1];
+                    console.log(`   🔍 Detected tool usage: ${toolName}`);
+                    
+                    // Extract parameters based on context
+                    const parameters = this.extractToolParameters(responseText, toolName);
+                    
                     toolCalls.push({
-                        tool: match[1],
-                        parameters: {} // Simple parameters for now
+                        tool: toolName,
+                        parameters: parameters
                     });
                 }
             }
         }
 
         return toolCalls;
+    }
+
+    /**
+     * Extract parameters for a specific tool from the response text
+     */
+    private extractToolParameters(responseText: string, toolName: string): any {
+        const parameters: any = {};
+
+        switch (toolName) {
+            case 'calculate':
+                // Look for math expressions
+                const mathMatch = responseText.match(/(\d+(?:\.\d+)?)\s*[\+\-\*\/]\s*(\d+(?:\.\d+)?)/);
+                if (mathMatch) {
+                    parameters.expression = mathMatch[0];
+                } else {
+                    // Look for "What is X * Y" patterns
+                    const whatIsMatch = responseText.match(/what is (\d+(?:\.\d+)?)\s*[\+\-\*\/]\s*(\d+(?:\.\d+)?)/i);
+                    if (whatIsMatch) {
+                        parameters.expression = whatIsMatch[0].replace(/what is /i, '');
+                    }
+                }
+                break;
+
+            case 'search_web':
+                // Look for search queries
+                const searchMatch = responseText.match(/search for (.+?)(?:\.|$)/i);
+                if (searchMatch && searchMatch[1]) {
+                    parameters.query = searchMatch[1].trim();
+                } else {
+                    // Look for "find information about" patterns
+                    const findMatch = responseText.match(/find information about (.+?)(?:\.|$)/i);
+                    if (findMatch && findMatch[1]) {
+                        parameters.query = findMatch[1].trim();
+                    }
+                }
+                break;
+
+            case 'create_todos':
+                // Look for todo items
+                const todoMatch = responseText.match(/create.*todo.*list.*for (.+?)(?:\.|$)/i);
+                if (todoMatch && todoMatch[1]) {
+                    parameters.todos = [`Learn ${todoMatch[1].trim()}`];
+                } else {
+                    parameters.todos = ['Create todo list'];
+                }
+                break;
+
+            case 'set_variable':
+                // Look for variable assignments
+                const varMatch = responseText.match(/set.*variable.*(\w+).*to.*(.+?)(?:\.|$)/i);
+                if (varMatch && varMatch[1] && varMatch[2]) {
+                    parameters.name = varMatch[1];
+                    parameters.value = varMatch[2].trim();
+                }
+                break;
+
+            default:
+                // Generic parameter extraction
+                parameters.query = responseText.substring(0, 100);
+                break;
+        }
+
+        console.log(`   📝 Extracted parameters for ${toolName}:`, parameters);
+        return parameters;
     }
 
     /**

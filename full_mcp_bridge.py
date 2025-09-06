@@ -12,6 +12,10 @@ import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from typing import Dict, Any, List
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the parent directory to the path so we can import MCP servers
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
