@@ -232,6 +232,34 @@ Where it lives
 
 Quick start with BFS agent
 
-1. Set env vars as needed (e.g., `BFS_VALIDATOR_MODE=action`).
-2. Run the app and issue tasks (coding or dev/ops).
-3. Watch `[BFS] draft:` and `[BFS][validator]` logs to see evidence and decisions.
+1) Prepare environment
+
+- Start the MCP HTTP bridge (Python):
+  - `python full_mcp_bridge.py`
+- Create a `.env` with at least:
+  - `OPENAI_KEY=sk-...`
+  - `MCP_HTTP_BASE=http://127.0.0.1:3310/api/bridge`
+  - `BFS_VALIDATOR_MODE=action`
+  - `BFS_VALUE_TRIGGER=0.8`
+  - `BFS_VALIDATION_COOLDOWN=2`
+  - `BFS_VALIDATOR_CONF=0.7`
+  - `BFS_HINT_BOOST=0.35`
+  - `BFS_SPECIAL_HINT_BOOST=0.1`
+  - `BFS_EXPLAIN_LOG_MAX=0`
+
+2) Install & run
+
+- `npm install`
+- Dev mode (ts-node): `npm run dev`
+- Or build then start: `npm run build && npm start`
+
+3) Try sample queries
+
+- Coding: `solve leetcode 123`
+  - Expect: code + self‑tests in draft, validator pass when coherent.
+- Dev/Ops: `help me develop a web app on the remote server amazon linux`
+  - Expect: operational commands + verification checks; validator rejects summaries without checks.
+
+4) Observe logs
+
+- `[BFS] draft:` shows code/tests/ops meta; `[BFS][validator]` shows pass/fail and rationale.
