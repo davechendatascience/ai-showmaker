@@ -288,6 +288,23 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("ai_showmaker.enhanced_llamaindex_agent").setLevel(logging.DEBUG)
 ```
 
+## Orchestration: Best‑First Search Agent + Validator
+
+In addition to the enhanced MCP integration, AI‑Showmaker introduces a policy+value Best‑First Search (BFS) agent paired with a Validator agent. Validation becomes a first‑class action that gates completion, and the agent exposes evidence to the validator for reliable decisions.
+
+Highlights
+
+- Validation as action: The agent injects `synthesize_answer → validate` when plan value exceeds a threshold; success requires validator pass (confidence ≥ min).
+- Evidence gating: The agent delays validation until fresh evidence exists; when validator requests tests, it generates/attaches self‑tests before re‑validating.
+- Code tasks: Composer includes code + a fenced JSON cases block and a short walkthrough; validator accepts code + self‑tests without real execution.
+- Dev/Ops tasks: Composer includes concrete shell commands and verification (curl/systemctl/ss) with a rollback note; validator rejects high‑level summaries alone.
+- Observability: Logs include `[BFS] act`, `explain`, `schedule`, `draft` (code/tests/ops meta), and `[BFS][validator]` rationale.
+
+See also
+
+- Migration notes: `docs/MIGRATION_BFS_VALIDATOR.md`
+- Remote dev/deploy policy: `docs/guides/REMOTE_DEV_POLICY.md`
+
 ## Future Enhancements
 
 ### Planned Features
@@ -343,4 +360,4 @@ logging.getLogger("ai_showmaker.enhanced_llamaindex_agent").setLevel(logging.DEB
 
 ---
 
-For more information, see the [main documentation](README.md) and [API reference](docs/api/).
+For more information, see the [main documentation](ReadMe.md), the BFS+Validator [migration notes](docs/MIGRATION_BFS_VALIDATOR.md), the [remote dev policy](docs/guides/REMOTE_DEV_POLICY.md), and the [API reference](docs/api/).
