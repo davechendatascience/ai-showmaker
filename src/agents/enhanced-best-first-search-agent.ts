@@ -1,8 +1,8 @@
 import { HTTPMCPClient } from '../mcp/http-mcp-client';
 import { SessionManager } from '../core/session-manager';
-import { LongTermMemorySystem } from '../core/agentic-memory';
+import { RichMemoryManager, createRichMemorySystem } from '../core/memory';
 import { BaseLanguageModel } from '@langchain/core/language_models/base';
-import { OpenAILLM } from '../llm/openai-llm';
+// import { OpenAILLM } from '../llm/openai-llm'; // Unused for now
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ValidatorAgent } from './validator-agent';
 import {
@@ -20,8 +20,10 @@ export class EnhancedBestFirstSearchAgent {
   private mcpClient: HTTPMCPClient;
   private llm: BaseLanguageModel;
   private sessionManager: SessionManager;
-  private longTermMemory: LongTermMemorySystem;
+  private richMemory: RichMemoryManager;
+  private longTermMemory: RichMemoryManager; // Alias for compatibility
   private validator: ValidatorAgent;
+  // private sharedMemory: SharedMemorySystem;
   
   // Enhanced state management
   private state: SearchState;
@@ -60,39 +62,17 @@ export class EnhancedBestFirstSearchAgent {
     
     // Create a separate, lighter LLM for memory operations to avoid circular dependency
     // Use the same LLM if no separate API key is available
-    const memoryLLM = this.createMemoryLLM();
+    // const memoryLLM = this.createMemoryLLM(); // Unused for now
     
-    this.longTermMemory = new LongTermMemorySystem(memoryLLM);
+    this.richMemory = createRichMemorySystem();
+    this.longTermMemory = this.richMemory; // Alias for compatibility
     this.validator = new ValidatorAgent(this.llm);
     
     // Initialize state
     this.state = this.initializeState();
   }
 
-  /**
-   * Create a memory LLM, falling back to the main LLM if no separate API key is available
-   */
-  private createMemoryLLM(): BaseLanguageModel {
-    const apiKey = process.env['OPENAI_KEY'] || process.env['OPENAI_API_KEY'];
-    
-    if (apiKey && apiKey.trim() !== '') {
-      try {
-        // Create a separate, lighter LLM for memory operations
-        return new OpenAILLM({
-          apiKey: apiKey,
-          model: 'gpt-3.5-turbo', // Lighter model for memory operations
-          temperature: 0.1, // Lower temperature for more consistent memory operations
-          maxTokens: 1000
-        });
-      } catch (error) {
-        console.warn('Failed to create separate memory LLM, using main LLM:', error);
-        return this.llm;
-      }
-    } else {
-      console.warn('No OpenAI API key found for memory LLM, using main LLM');
-      return this.llm;
-    }
-  }
+  // Note: _createMemoryLLM method removed as it's not currently used
 
   private initializeState(): SearchState {
     return {
@@ -298,8 +278,8 @@ export class EnhancedBestFirstSearchAgent {
     await this.longTermMemory.learnFromTask(
       task,
       finalOutcome,
-      JSON.stringify(this.state.scratchpad),
-      this.detectTaskType(task)
+      true, // success
+      0 // executionTime
     );
 
     return await this.renderAnswer(task, this.state.scratchpad);
@@ -319,9 +299,7 @@ export class EnhancedBestFirstSearchAgent {
     
     const memoryContext = await this.longTermMemory.generateMemoryContext(
       `Task: ${taskType}, Step: ${scratchpad[scratchpad.length - 1]?.step || 'initial'}, Failures: ${recentFailures.join(', ')}`,
-      'task_execution',
-      'general',
-      ['python', 'leetcode', 'execution', 'debugging', 'workspace']
+      1000 // maxTokens
     );
     
     console.log(`[EnhancedBFS] Memory context received: ${memoryContext.substring(0, 200)}...`);
@@ -1139,7 +1117,7 @@ Respond with ONLY the scores in order, separated by newlines:
     try {
       // Intelligently analyze the observation content to determine actual outcome
       const actualOutcome = this.analyzeExecutionOutcome(execution);
-      const evidence = `Tool: ${execution.tool}, Result: ${execution.observation}, Tool Success: ${execution.success}, Actual Outcome: ${actualOutcome}`;
+      // const evidence = `Tool: ${execution.tool}, Result: ${execution.observation}, Tool Success: ${execution.success}, Actual Outcome: ${actualOutcome}`; // Unused for now
       
       console.log(`[EnhancedBFS] Learning from execution: ${actualOutcome} - ${execution.tool} (tool success: ${execution.success})`);
       if (actualOutcome !== (execution.success ? 'success' : 'failure')) {
@@ -1150,8 +1128,8 @@ Respond with ONLY the scores in order, separated by newlines:
       await this.longTermMemory.learnFromTask(
         `Execute ${execution.tool}`,
         actualOutcome,
-        evidence,
-        'tool_execution'
+        execution.success, // success boolean
+        0 // executionTime
       );
     } catch (error) {
       console.warn(`[EnhancedBFS] Failed to learn from execution:`, error);
@@ -1268,9 +1246,7 @@ Respond with ONLY the scores in order, separated by newlines:
       const toolNames = tools.map(t => t.name).join(', ');
       const warnings = await this.longTermMemory.generateMemoryContext(
         `Task: ${task}, Available Tools: ${toolNames}`,
-        'planning',
-        'general',
-        ['failure', 'debugging', 'parameter', 'validation']
+        500 // maxTokens
       );
       
       if (warnings && warnings !== 'No relevant memories found....') {

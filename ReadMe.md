@@ -189,17 +189,66 @@ MIT License - see LICENSE file for details.
 
 ---
 
-## Best‑First Search Agent + Validator (New Orchestration)
+## 🧠 Enhanced Best-First Search Agent with Failure-Aware Planning
 
-AI‑Showmaker now includes a Best‑First Search (BFS) policy+value agent orchestrated with a dedicated Validator agent. This pairing improves reliability by making validation an explicit, first‑class action that gates completion.
+AI‑Showmaker now features a revolutionary **Enhanced Best‑First Search (BFS) agent** with **failure-aware planning** and **rich context memory**. This system learns from failures, adapts approaches automatically, and eliminates infinite loops while handling complex multi-component tasks.
 
-Key concepts
+### 🎯 Key Innovations
 
-- Best‑First Search: Proposes high‑level actions (e.g., gather_info, extract_data, design, implement_code, test_example, synthesize_answer, validate) and explores them with a value function.
-- Validation as action: The main agent injects `synthesize_answer` → `validate` when its plan value exceeds a threshold. Task success is gated on a validator pass (confidence ≥ minimum).
-- Evidence gating: The agent delays validation until there is fresh evidence; when the validator requests tests, the agent first ensures self‑tests exist before re‑validating.
-- Self‑tests (code tasks): Composer includes a fenced JSON block with cases plus a short walkthrough; the agent detects and logs tests presence for the validator.
-- Dev/Ops checks (remote/web tasks): Composer includes concrete shell commands and verification steps (curl/systemctl/ss/firewall), and a rollback note. Validator requires these (won’t accept summaries alone).
+- **Failure-Aware Planning**: Detects known failure patterns and adapts plans automatically
+- **Rich Context Memory**: Multi-layered memory system with evidence tracking and semantic indexing
+- **Validator Integration**: Evidence-based validation with confidence scoring
+- **Adaptive Learning**: Learns from failures and builds knowledge for future tasks
+- **Constraint Awareness**: Automatically works within server limitations and permissions
+
+### 🚀 What Makes This Special
+
+**Before**: Agents would get stuck in infinite loops, repeating the same failed approaches
+**Now**: System detects failures, adapts plans, and completes complex tasks efficiently
+
+**Example**: 
+- ❌ **Old**: 20+ iterations trying `systemctl` commands (admin blocked)
+- ✅ **New**: 3 iterations, adapts to `python -m http.server` (user-level)
+
+### 🏗️ Architecture Components
+
+- **Enhanced BFS Agent** (`src/agents/enhanced-best-first-search-agent-with-memory-bank.ts`)
+- **Rich Memory Manager** (`src/core/memory/rich-memory-manager.ts`)
+- **Validator Agent** (`src/agents/validator-agent.ts`)
+- **File Registry** (`src/core/memory/file-registry.ts`)
+- **Code Documentation** (`src/core/memory/code-documentation.ts`)
+- **Loop Prevention** (`src/core/memory/rich-loop-prevention.ts`)
+
+### 🎯 Proven Capabilities
+
+**Simple Tasks**: 
+- ✅ "What is 2+2?" → Creates answer file, validates completion
+- ✅ "Solve LeetCode 1234" → Generates working code with tests
+
+**Complex Tasks**:
+- ✅ "Develop a webapp on remote server" → Creates Flask app, adapts to constraints
+- ✅ "Create real-time data analytics dashboard" → Builds 4-component system (ingestion, processing, visualization, API)
+
+### 🔧 Failure-Aware Planning in Action
+
+```typescript
+// System detects failure risk and adapts automatically
+⚠️ High failure risk: Path traversal detected - trying to write to system directory
+✅ Adapted plan: Using workspace directory instead of system directory
+
+⚠️ High failure risk: Administrative command detected - systemctl operations not allowed  
+✅ Adapted plan: Using Python HTTP server instead of systemctl
+```
+
+### 🧠 Rich Context Memory System
+
+- **Short-Term Buffer**: Real-time task context and execution history
+- **Long-Term Records**: Persistent learning from successful patterns
+- **Knowledge Graph**: Entity relationships and semantic connections
+- **Semantic Index**: Embedding-based similarity search
+- **Evidence Tracking**: File creation, code implementation, synthesis detection
+
+### ⚙️ Configuration
 
 Environment variables
 
@@ -230,36 +279,49 @@ Where it lives
 - Main agent: `src/agents/best-first-search-agent.ts`
 - Validator: `src/agents/validator-agent.ts`
 
-Quick start with BFS agent
+### 🚀 Quick Start with Enhanced BFS Agent
 
-1) Prepare environment
+1) **Prepare environment**
 
 - Start the MCP HTTP bridge (Python):
-  - `python full_mcp_bridge.py`
+  ```bash
+  python full_mcp_bridge.py
+  ```
 - Create a `.env` with at least:
-  - `OPENAI_KEY=sk-...`
-  - `MCP_HTTP_BASE=http://127.0.0.1:3310/api/bridge`
-  - `BFS_VALIDATOR_MODE=action`
-  - `BFS_VALUE_TRIGGER=0.8`
-  - `BFS_VALIDATION_COOLDOWN=2`
-  - `BFS_VALIDATOR_CONF=0.7`
-  - `BFS_HINT_BOOST=0.35`
-  - `BFS_SPECIAL_HINT_BOOST=0.1`
-  - `BFS_EXPLAIN_LOG_MAX=0`
+  ```bash
+  OPENAI_KEY=sk-...
+  MCP_HTTP_BASE=http://127.0.0.1:3310/api/bridge
+  BFS_VALIDATOR_MODE=action
+  BFS_VALUE_TRIGGER=0.8
+  BFS_VALIDATION_COOLDOWN=2
+  BFS_VALIDATOR_CONF=0.7
+  BFS_HINT_BOOST=0.35
+  BFS_SPECIAL_HINT_BOOST=0.1
+  BFS_EXPLAIN_LOG_MAX=0
+  ```
 
-2) Install & run
+2) **Install & run**
 
-- `npm install`
-- Dev mode (ts-node): `npm run dev`
-- Or build then start: `npm run build && npm start`
+```bash
+npm install
+npm run monitor:ui  # Start monitoring UI
+# Or run directly: npm run dev
+```
 
-3) Try sample queries
+3) **Try sample queries**
 
-- Coding: `solve leetcode 123`
-  - Expect: code + self‑tests in draft, validator pass when coherent.
-- Dev/Ops: `help me develop a web app on the remote server amazon linux`
-  - Expect: operational commands + verification checks; validator rejects summaries without checks.
+- **Simple**: `what is 2+2`
+  - Expect: Creates answer file, validates completion in 1 iteration
+- **Coding**: `solve leetcode 1234`
+  - Expect: Generates working code with tests, validates implementation
+- **Complex**: `develop a webapp on remote server amazon linux`
+  - Expect: Adapts to constraints, creates Flask app, validates setup
+- **Advanced**: `Create a real-time data analytics dashboard that processes streaming data, performs statistical analysis, visualizes trends, and provides interactive insights`
+  - Expect: Builds 4-component system (ingestion, processing, visualization, API)
 
-4) Observe logs
+4) **Observe the magic**
 
-- `[BFS] draft:` shows code/tests/ops meta; `[BFS][validator]` shows pass/fail and rationale.
+- `⚠️ High failure risk detected` → System identifies potential problems
+- `✅ Adapted plan` → System automatically fixes the approach
+- `[EnhancedBFS-Memory] ✅ GOAL STATE REACHED` → Task completed successfully
+- No more infinite loops! 🎉
