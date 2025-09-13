@@ -1,24 +1,77 @@
-# Repository Structure & Empty Folders Analysis
+# Repository Structure
 
 ## 🗂️ Current Structure Overview
 
 ```
 ai-showmaker/
-├── 📁 core/                  # ✅ ACTIVE - Agent orchestration & config
-├── 📁 mcp_servers/          # ✅ ACTIVE - 4 specialized MCP servers  
-├── 📁 tests/                # ✅ ACTIVE - Comprehensive test suite
-├── 📁 docs/                 # 🔄 NEW - Documentation (this update)
-├── 📁 secrets/              # ✅ ACTIVE - SSH keys & API credentials
-├── 📁 config/               # ⚠️ EMPTY - Future configuration files
-├── 📁 deployment/           # ⚠️ EMPTY - Future Docker/infrastructure  
-├── 📁 examples/             # ⚠️ EMPTY - Future usage examples
-├── 📁 monitoring/           # ⚠️ EMPTY - Future system monitoring
-├── 📁 scripts/              # ⚠️ EMPTY - Future automation scripts
-├── 📁 tools/                # ⚠️ EMPTY - Legacy from refactoring
-├── 📁 utils/                # ⚠️ EMPTY - Future utility functions
-├── 📁 venv/                 # ✅ ACTIVE - Python virtual environment
-└── 📄 main files            # ✅ ACTIVE - Entry points & configs
+├── 📁 src/                   # ✅ ACTIVE - TypeScript source code
+│   ├── agents/               # ✅ ACTIVE - AI agents (BFS, Validator)
+│   ├── core/                 # ✅ ACTIVE - Core systems & memory
+│   │   └── memory/           # ✅ ACTIVE - Rich context memory system
+│   ├── llm/                  # ✅ ACTIVE - LLM integrations
+│   ├── mcp/                  # ✅ ACTIVE - MCP client
+│   └── types/                # ✅ ACTIVE - TypeScript definitions
+├── 📁 mcp_servers/           # ✅ ACTIVE - Python MCP servers
+├── 📁 tests/                 # ✅ ACTIVE - Test suite
+├── 📁 docs/                  # ✅ ACTIVE - Documentation
+├── 📁 resources/             # ✅ ACTIVE - Research & design docs
+├── 📁 monitoring/            # ✅ ACTIVE - Monitoring UI
+├── 📁 scripts/               # ✅ ACTIVE - Utility scripts
+├── 📁 secrets/               # ✅ ACTIVE - SSH keys & API credentials
+├── 📁 config/                # ⚠️ EMPTY - Future configuration files
+├── 📁 deployment/            # ⚠️ EMPTY - Future Docker/infrastructure  
+├── 📁 venv/                  # ✅ ACTIVE - Python virtual environment
+└── 📄 main files             # ✅ ACTIVE - Entry points & configs
 ```
+
+## 🎯 Active Components
+
+### 🧠 **AI Agents** (`src/agents/`)
+- **`enhanced-best-first-search-agent-with-memory-bank.ts`** - Main failure-aware BFS agent
+- **`enhanced-best-first-search-agent.ts`** - Alternative BFS agent implementation
+- **`validator-agent.ts`** - Evidence-based validation system
+
+### 🧠 **Rich Memory System** (`src/core/memory/`)
+- **`rich-memory-manager.ts`** - Central memory orchestration
+- **`file-registry.ts`** - File operation tracking and metadata
+- **`code-documentation.ts`** - Code analysis and documentation extraction
+- **`rich-completion-rules.ts`** - Evidence-based completion validation
+- **`rich-loop-prevention.ts`** - Loop detection and prevention
+- **`rich-memory-types.ts`** - TypeScript type definitions
+
+### 🔧 **Core Systems** (`src/core/`)
+- **`config.ts`** - Configuration management
+- **`session-manager.ts`** - Session and context management
+
+### 🤖 **LLM Integrations** (`src/llm/`)
+- **`openai-llm.ts`** - OpenAI API integration
+- **`inference-net-llm.ts`** - Inference.net integration
+- **`rate-limited-llm.ts`** - Rate limiting wrapper
+- **`mock-llm.ts`** - Mock LLM for testing
+
+### 🌐 **MCP Integration** (`src/mcp/`)
+- **`http-mcp-client.ts`** - HTTP client for Python MCP servers
+
+### 🐍 **Python MCP Servers** (`mcp_servers/`)
+- **`calculation/`** - Math operations and calculations
+- **`monitoring/`** - System monitoring and logging
+- **`remote/`** - Remote execution capabilities
+- **`websearch/`** - Web search functionality
+
+### 📊 **Monitoring** (`monitoring/`)
+- **`ui/`** - Web-based monitoring interface
+- **`server.js`** - Monitoring server
+
+### 📚 **Documentation** (`docs/`)
+- **`README.md`** - Documentation index
+- **`FAILURE_AWARE_BFS.md`** - Technical system documentation
+- **`guides/`** - Getting started and development guides
+- **`api/`** - API documentation
+
+### 🔬 **Research** (`resources/`)
+- **`perplexity_agent_memory_research.md`** - Memory system research
+- **`rich-context-bfs-integration-design.md`** - System design documents
+- **`a-practical-guide-to-building-agents.pdf`** - Agent development guide
 
 ## 📂 Empty Folders - Purpose & Future Plans
 
