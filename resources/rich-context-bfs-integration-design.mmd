@@ -1,0 +1,71 @@
+graph TD
+    A[User Query] --> B[BFS Agent]
+    B --> C[Task Type Detection]
+    C --> D[Rich Memory Manager]
+    D --> E[Initialize Task Context]
+    E --> F[Generate Context-Aware Plans]
+    F --> G[Execute Plan with Rich Tracking]
+    G --> H[Update Rich Memory]
+    H --> I[Check Rich Completion]
+    I --> J{Task Complete?}
+    J -->|No| K[Generate Next Plans]
+    K --> G
+    J -->|Yes| L[Return Rich Result]
+    
+    M[Validator Agent] --> N[Query Rich Context]
+    N --> O[Evidence-Based Validation]
+    O --> P[Rich Validation Result]
+    P --> Q[Update Memory with Feedback]
+    Q --> B
+    
+    R[Rich Memory System] --> S[Task Context Store]
+    R --> T[Action Evidence Log]
+    R --> U[File Registry]
+    R --> V[Code Documentation]
+    R --> W[Completion Evidence]
+    
+    S --> S1[taskId: string]
+    S --> S2[taskType: string]
+    S --> S3[actions: RichAction[]]
+    S --> S4[evidence: Evidence[]]
+    S --> S5[files: FileReference[]]
+    S --> S6[complete: boolean]
+    
+    T --> T1[actionId: string]
+    T --> T2[actionType: string]
+    T --> T3[inputs: object]
+    T --> T4[outputs: RichOutput]
+    T --> T5[evidence: Evidence[]]
+    T --> T6[timestamp: number]
+    
+    U --> U1[fileId: string]
+    U --> U2[filePath: string]
+    U --> U3[fileType: string]
+    U --> U4[content: string]
+    U --> U5[metadata: FileMetadata]
+    U --> U6[createdBy: string]
+    
+    V --> V1[codeId: string]
+    V --> V2[fileId: string]
+    V --> V3[language: string]
+    V --> V4[functions: FunctionDoc[]]
+    V --> V5[classes: ClassDoc[]]
+    V --> V6[documentation: string]
+    
+    W --> W1[evidenceId: string]
+    W --> W2[evidenceType: string]
+    W --> W3[content: string]
+    W --> W4[confidence: number]
+    W --> W5[source: string]
+    W --> W6[timestamp: number]
+    
+    X[Loop Prevention] --> Y[Action Pattern Detection]
+    X --> Z[Evidence-Based Loop Detection]
+    X --> AA[Context-Aware Limits]
+    X --> BB[Rich Validation Limits]
+    
+    style A fill:#e1f5fe
+    style L fill:#c8e6c9
+    style R fill:#fff3e0
+    style M fill:#ffebee
+    style X fill:#f3e5f5
