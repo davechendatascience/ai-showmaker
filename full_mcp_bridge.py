@@ -46,7 +46,6 @@ class FullMCPBridge:
         # List of servers to load
         server_configs = [
             ("calculation", "mcp_servers.calculation.server", "CalculationMCPServer"),
-            ("development", "mcp_servers.development.server", "DevelopmentMCPServer"),
             ("monitoring", "mcp_servers.monitoring.server", "MonitoringMCPServer"),
             ("remote", "mcp_servers.remote.server", "RemoteMCPServer"),
             ("websearch", "mcp_servers.websearch.server", "WebSearchMCPServer"),
@@ -398,7 +397,7 @@ class FullMCPBridge:
 
 class FullMCPRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the full MCP bridge."""
-    protocol_version = "HTTP/1.1"
+    protocol_version = "HTTP/1.0"
     
     def __init__(self, bridge, *args, **kwargs):
         self.bridge = bridge
@@ -534,12 +533,40 @@ class FullMCPRequestHandler(BaseHTTPRequestHandler):
             pass
         if self.path == '/execute':
             try:
-                # Read request body
-                content_length = int(self.headers['Content-Length'])
-                post_data = self.rfile.read(content_length)
+                # Read request body (supports Content-Length and chunked transfer-encoding)
+                def _read_body():
+                    te = (self.headers.get('Transfer-Encoding') or '').lower()
+                    if 'chunked' in te:
+                        chunks = []
+                        while True:
+                            size_line = self.rfile.readline()
+                            if not size_line:
+                                break
+                            try:
+                                size = int(size_line.strip().split(b';', 1)[0], 16)
+                            except Exception:
+                                size = 0
+                            if size == 0:
+                                # trailing CRLF
+                                _ = self.rfile.readline()
+                                break
+                            data = self.rfile.read(size)
+                            chunks.append(data)
+                            _ = self.rfile.readline()
+                        return b''.join(chunks)
+                    cl = self.headers.get('Content-Length')
+                    if cl is None:
+                        return b''
+                    try:
+                        ln = int(cl)
+                    except Exception:
+                        ln = 0
+                    return self.rfile.read(ln)
+
+                post_data = _read_body()
                 
                 print(f"[DEBUG] Received POST data: {post_data.decode('utf-8')}")
-                data = json.loads(post_data.decode('utf-8'))
+                data = json.loads(post_data.decode('utf-8') or '{}')
                 tool_name = data.get('tool_name')
                 params = data.get('params', {})
                 
@@ -561,6 +588,47 @@ class FullMCPRequestHandler(BaseHTTPRequestHandler):
                     'error': str(e),
                     'success': False
                 })
+        elif self.path == '/echo':
+            try:
+                # Read request body (supports Content-Length and chunked transfer-encoding)
+                te = (self.headers.get('Transfer-Encoding') or '').lower()
+                if 'chunked' in te:
+                    chunks = []
+                    while True:
+                        size_line = self.rfile.readline()
+                        if not size_line:
+                            break
+                        try:
+                            size = int(size_line.strip().split(b';', 1)[0], 16)
+                        except Exception:
+                            size = 0
+                        if size == 0:
+                            _ = self.rfile.readline()
+                            break
+                        data = self.rfile.read(size)
+                        chunks.append(data)
+                        _ = self.rfile.readline()
+                    raw = b''.join(chunks)
+                else:
+                    cl = self.headers.get('Content-Length')
+                    raw = self.rfile.read(int(cl)) if cl else b''
+
+                txt = ''
+                try:
+                    txt = raw.decode('utf-8')
+                except Exception:
+                    pass
+                try:
+                    parsed = json.loads(txt) if txt else None
+                except Exception:
+                    parsed = None
+                self.send_json_response(200, {
+                    'ok': True,
+                    'received_bytes': len(raw),
+                    'echo': parsed if parsed is not None else txt,
+                })
+            except Exception as e:
+                self.send_json_response(400, { 'ok': False, 'error': str(e) })
         elif self.path == '/remote/session/start':
             try:
                 content_length = int(self.headers.get('Content-Length', 0) or 0)
@@ -620,6 +688,8 @@ class FullMCPRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         except Exception:
             pass
+        # Ensure the connection is closed after this response
+        self.close_connection = True
     
     def log_message(self, format, *args):
         """Override to reduce log noise."""

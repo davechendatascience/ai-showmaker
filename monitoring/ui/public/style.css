@@ -53,7 +53,9 @@ main {
   gap: 12px;
 }
 .log-pane { background: var(--panel); border: 1px solid #232737; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-.pane-title { background: #0b0d12; padding: 8px 10px; border-bottom: 1px solid #232737; color: var(--muted); font-size: 12px; }
+.pane-title { background: #0b0d12; padding: 8px 10px; border-bottom: 1px solid #232737; color: var(--muted); font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pane-actions { display: flex; gap: 6px; }
+.icon.small { padding: 4px 8px; font-size: 12px; line-height: 1; }
 .terminal { padding: 10px; white-space: pre; word-break: normal; overflow-wrap: normal; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; height: 60vh; overflow: auto; }
 
 button { background: var(--accent); color: white; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; }

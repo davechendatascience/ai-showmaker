@@ -17,7 +17,6 @@ from .base.server import AIShowmakerMCPServer, MCPTool, MCPToolResult
 # Import individual servers
 from .calculation.server import CalculationMCPServer
 from .remote.server import RemoteMCPServer
-from .development.server import DevelopmentMCPServer
 from .monitoring.server import MonitoringMCPServer
 
 __version__ = "2.0.0"
@@ -28,6 +27,5 @@ __all__ = [
     'MCPToolResult',
     'CalculationMCPServer', 
     'RemoteMCPServer',
-    'DevelopmentMCPServer',
     'MonitoringMCPServer'
 ]

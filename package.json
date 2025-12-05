@@ -2,12 +2,12 @@
   "name": "ai-showmaker-ts",
   "version": "1.0.0",
   "description": "AI-Showmaker TypeScript Migration - A modern, type-safe AI agent framework",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
   "scripts": {
     "build": "tsc",
     "dev": "nodemon --exec ts-node src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/main.js",
     "clean": "rimraf dist",
     "rebuild": "npm run clean && npm run build",
     "test": "jest",
@@ -16,7 +16,10 @@
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
-    "monitor:ui": "node monitoring/ui/server.js"
+    "monitor:ui": "node monitoring/ui/server.js",
+    "test:memory-bank": "node test-memory-bank-comprehensive.js",
+    "test:leetcode": "node test-leetcode-memory-bank.js",
+    "test:aws-webapp": "node test-webapp-aws-memory-bank.js"
   },
   "keywords": [
     "ai",
@@ -43,6 +46,7 @@
     "@langchain/openai": "^0.3.0",
     "dotenv": "^16.6.1",
     "langchain": "^0.3.0",
-    "openai": "^4.104.0"
+    "openai": "^4.104.0",
+    "pdf-parse": "^1.1.1"
   }
 }

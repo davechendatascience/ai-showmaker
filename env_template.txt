@@ -1,13 +1,40 @@
-# Environment Variables Template for MCP Remote Server
+# Environment Variables Template for AI-Showmaker
 # Copy this to .env and fill in your actual values
 
 # OpenAI API Configuration
 OPENAI_KEY=your_openai_api_key_here
 
+# MCP Server Configuration
+MCP_HTTP_BASE=http://localhost:8000
+
 # Remote Server Configuration (for MCP remote server)
 AWS_HOST=your_remote_server_hostname_or_ip
 AWS_USER=your_ssh_username
 PEM_PATH=path/to/your/ssh/private/key.pem
+
+# Best-First Search Agent Configuration
+BFS_MAX_ITER=40
+BFS_BEAM_WIDTH=4
+BFS_MIN_SCORE=0.4
+BFS_DEBUG=false
+
+# Validator Configuration
+BFS_VALIDATOR_EVERY=1
+BFS_VALIDATOR_CONF=0.7
+BFS_VALIDATOR_MODE=action
+BFS_VALUE_TRIGGER=0.8
+BFS_VALIDATION_COOLDOWN=2
+BFS_HINT_BOOST=0.35
+BFS_SPECIAL_HINT_BOOST=0.1
+
+# Enhanced Agent Configuration
+USE_ENHANCED_AGENT=false
+BFS_SCENARIO_PREDICTION=true
+BFS_MAX_SCENARIOS=5
+BFS_MIN_PROBABILITY=0.1
+BFS_PREDICTION_CONFIDENCE=0.6
+BFS_LEARN_FROM_OUTCOMES=true
+BFS_CACHE_DURATION=300000
 
 # Example values (replace with your actual values):
 # AWS_HOST=ec2-xx-xx-xx-xx.compute-1.amazonaws.com

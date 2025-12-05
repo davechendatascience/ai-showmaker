@@ -149,7 +149,11 @@ function sendToApp(line) {
     return { ok: false, message: 'App is not running' };
   }
   try {
-    appProcess.stdin.write(line.endsWith('\n') ? line : line + '\n');
+    const msg = String(line || '').trimEnd();
+    const framed = msg.endsWith('\n') ? msg : msg + '\n';
+    // Echo to app log stream for immediate feedback
+    broadcast(appSubscribers, `[ui] >> ${msg}\n`);
+    appProcess.stdin.write(framed);
     return { ok: true, message: 'Sent' };
   } catch (e) {
     return { ok: false, message: String(e) };
@@ -246,6 +250,38 @@ const server = http.createServer(async (req, res) => {
       });
       req2.on('error', (err) => json(res, 502, { error: String(err) }));
       req2.write(buf); req2.end();
+    });
+    return;
+  }
+  if (pathname === '/api/bridge/echo' && req.method === 'POST') {
+    // POST echo against bridge for connectivity testing
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      try {
+        const httpModule = require('http');
+        const buf = Buffer.from(body || '');
+        const req2 = httpModule.request({ hostname: '127.0.0.1', port: 8000, path: '/echo', method: 'POST', agent: new httpModule.Agent({ keepAlive: false }), headers: { 'Content-Type': 'application/json', 'Content-Length': buf.length, 'Connection': 'close' } }, (pres) => {
+          let chunks = '';
+          pres.on('data', (ch) => (chunks += ch));
+          pres.on('end', () => { try { json(res, pres.statusCode || 500, chunks ? JSON.parse(chunks) : {}); } catch { json(res, 500, { error: 'Invalid JSON from bridge' }); } });
+        });
+        req2.on('error', (err) => json(res, 502, { error: String(err) }));
+        req2.write(buf); req2.end();
+      } catch (e) {
+        json(res, 500, { error: String(e) });
+      }
+    });
+    return;
+  }
+  if (pathname === '/api/test/echo' && req.method === 'POST') {
+    // Local echo endpoint (does not involve bridge)
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      let data = null;
+      try { data = JSON.parse(body || '{}'); } catch (_) {}
+      json(res, 200, { success: true, length: Buffer.byteLength(body || ''), json: data, raw: body || '' });
     });
     return;
   }
