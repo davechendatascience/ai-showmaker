@@ -188,12 +188,12 @@ export class SessionManager {
         const now = new Date();
         const expiredSessions: string[] = [];
 
-        for (const [sessionId, session] of this.sessions.entries()) {
+        this.sessions.forEach((session, sessionId) => {
             const timeSinceActivity = now.getTime() - session.lastActivity.getTime();
             if (timeSinceActivity > this.config.sessionTimeout!) {
                 expiredSessions.push(sessionId);
             }
-        }
+        });
 
         expiredSessions.forEach(sessionId => {
             this.sessions.delete(sessionId);

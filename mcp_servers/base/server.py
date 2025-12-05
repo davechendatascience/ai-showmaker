@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
-from core.exceptions import ToolError, ValidationError
+from core.exceptions import ToolError, ValidationError, ConnectionError, SecurityError, AIShowmakerError
 
 
 class MCPToolResultType(Enum):
@@ -23,6 +23,17 @@ class MCPToolResultType(Enum):
     SUCCESS = "success"
     ERROR = "error"
     PARTIAL = "partial"
+
+
+class MCPErrorCode(Enum):
+    """Standardized error codes for tool failures."""
+    TOOL_NOT_FOUND = "tool_not_found"
+    VALIDATION_ERROR = "validation_error"
+    SECURITY_ERROR = "security_error"
+    CONNECTION_ERROR = "connection_error"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+    UNKNOWN_ERROR = "unknown_error"
 
 
 @dataclass
@@ -50,6 +61,11 @@ class MCPTool:
     version: str = "1.0.0"
     timeout: int = 30
     requires_auth: bool = False
+    # Error handling / retry policy (optional)
+    max_retries: int = 0
+    retry_backoff: float = 0.5  # seconds for first retry
+    retry_backoff_factor: float = 2.0  # exponential backoff factor
+    retriable_error_codes: Optional[List[str]] = None  # e.g., ["connection_error"]
 
 
 class AIShowmakerMCPServer(ABC):
@@ -134,47 +150,74 @@ class AIShowmakerMCPServer(ABC):
             tool = self.get_tool(tool_name)
             if not tool:
                 raise ToolError(tool_name, f"Tool '{tool_name}' not found")
-            
+
             # Validate arguments
             self._validate_arguments(tool, arguments)
-            
+
             # Log execution
             self.logger.info(f"Executing tool: {tool_name} with args: {arguments}")
-            
-            # Execute with timeout
-            try:
-                result = await asyncio.wait_for(
-                    self._execute_with_error_handling(tool, arguments),
-                    timeout=tool.timeout
-                )
-                
-                execution_time = time.time() - start_time
-                
-                # Update stats
-                self.execution_stats['successful_calls'] += 1
-                self._update_avg_execution_time(execution_time)
-                
-                return MCPToolResult(
-                    result_type=MCPToolResultType.SUCCESS,
-                    data=result,
-                    message=f"Tool '{tool_name}' executed successfully",
-                    execution_time=execution_time,
-                    metadata={
-                        'tool_name': tool_name,
-                        'server_name': self.name,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                )
-                
-            except asyncio.TimeoutError:
-                raise ToolError(tool_name, f"Tool execution timed out after {tool.timeout}s")
-                
+
+            # Execute with timeout + retry policy
+            attempts = 0
+            max_attempts = max(1, int(getattr(tool, 'max_retries', 0)) + 1)
+            backoff = float(getattr(tool, 'retry_backoff', 0.5))
+            factor = float(getattr(tool, 'retry_backoff_factor', 2.0))
+            last_error: Optional[Exception] = None
+            while attempts < max_attempts:
+                attempts += 1
+                try:
+                    result = await asyncio.wait_for(
+                        self._execute_with_error_handling(tool, arguments),
+                        timeout=tool.timeout
+                    )
+
+                    execution_time = time.time() - start_time
+
+                    # Update stats
+                    self.execution_stats['successful_calls'] += 1
+                    self._update_avg_execution_time(execution_time)
+
+                    return MCPToolResult(
+                        result_type=MCPToolResultType.SUCCESS,
+                        data=result,
+                        message=f"Tool '{tool_name}' executed successfully",
+                        execution_time=execution_time,
+                        metadata={
+                            'tool_name': tool_name,
+                            'server_name': self.name,
+                            'attempts': attempts,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    )
+                except asyncio.TimeoutError as e:
+                    last_error = e
+                    error_code, retriable = MCPErrorCode.TIMEOUT.value, True
+                except Exception as e:
+                    last_error = e
+                    error_code, retriable = self._classify_exception(e)
+
+                # If we got here, an error occurred
+                if attempts < max_attempts and self._should_retry(tool, error_code, retriable):
+                    self.logger.warning(
+                        f"Tool '{tool_name}' failed on attempt {attempts}/{max_attempts} with {error_code}; retrying in {backoff:.2f}s"
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff *= factor
+                    continue
+                else:
+                    # Break to produce error result
+                    break
+
+            # If we exit loop without return, report error
+            raise last_error if last_error else ToolError(tool_name, "Unknown error")
+
         except Exception as e:
             execution_time = time.time() - start_time
             self.execution_stats['failed_calls'] += 1
             
             error_message = str(e)
-            self.logger.error(f"Tool execution failed: {tool_name} - {error_message}")
+            error_code, retriable = self._classify_exception(e)
+            self.logger.error(f"Tool execution failed: {tool_name} - {error_code} - {error_message}")
             
             return MCPToolResult(
                 result_type=MCPToolResultType.ERROR,
@@ -185,6 +228,8 @@ class AIShowmakerMCPServer(ABC):
                     'tool_name': tool_name,
                     'server_name': self.name,
                     'error_type': type(e).__name__,
+                    'error_code': error_code,
+                    'retriable': retriable,
                     'timestamp': datetime.now().isoformat()
                 }
             )
@@ -199,8 +244,14 @@ class AIShowmakerMCPServer(ABC):
                 # Run sync function in thread pool to avoid blocking
                 loop = asyncio.get_event_loop()
                 return await loop.run_in_executor(None, lambda: tool.execute_func(**arguments))
-                
+
+        except (ValidationError, SecurityError, ConnectionError, ToolError) as e:
+            # Preserve known error types for classification upstream
+            raise e
+        except asyncio.CancelledError:
+            raise ToolError(tool.name, "Tool execution cancelled")
         except Exception as e:
+            # Wrap unknown exceptions
             raise ToolError(tool.name, f"Tool execution failed: {str(e)}")
     
     def _validate_arguments(self, tool: MCPTool, arguments: Dict[str, Any]) -> None:
@@ -211,6 +262,32 @@ class AIShowmakerMCPServer(ABC):
         for param in required_params:
             if param not in arguments:
                 raise ValidationError(f"Required parameter '{param}' missing for tool '{tool.name}'")
+
+    def _classify_exception(self, e: Exception) -> (str, bool):
+        """Map exceptions to standardized error codes and whether they are retriable."""
+        # Don't rely only on type(e).__name__ strings; use known classes
+        if isinstance(e, ValidationError):
+            return MCPErrorCode.VALIDATION_ERROR.value, False
+        if isinstance(e, SecurityError):
+            return MCPErrorCode.SECURITY_ERROR.value, False
+        if isinstance(e, ConnectionError):
+            return MCPErrorCode.CONNECTION_ERROR.value, True
+        if isinstance(e, asyncio.TimeoutError):
+            return MCPErrorCode.TIMEOUT.value, True
+        if isinstance(e, ToolError):
+            # Generic tool error; assume retriable unless message indicates not found
+            msg = str(e).lower()
+            if "not found" in msg:
+                return MCPErrorCode.TOOL_NOT_FOUND.value, False
+            return MCPErrorCode.UNKNOWN_ERROR.value, True
+        return MCPErrorCode.UNKNOWN_ERROR.value, True
+
+    def _should_retry(self, tool: MCPTool, error_code: str, retriable_by_default: bool) -> bool:
+        """Decide whether to retry based on tool policy and error code."""
+        allowed = getattr(tool, 'retriable_error_codes', None)
+        if isinstance(allowed, list) and len(allowed) > 0:
+            return error_code in allowed
+        return retriable_by_default and getattr(tool, 'max_retries', 0) > 0
                 
     def _update_avg_execution_time(self, execution_time: float) -> None:
         """Update average execution time statistics."""

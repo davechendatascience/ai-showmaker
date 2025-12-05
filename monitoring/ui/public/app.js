@@ -79,6 +79,31 @@ async function refreshServers() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  async function copyText(text, btn) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      if (btn) {
+        const prev = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.disabled = true;
+        setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1000);
+      }
+    } catch (e) {
+      if (btn) btn.textContent = 'Failed';
+    }
+  }
   $('#start-bridge').addEventListener('click', async () => {
     const r = await post('/api/bridge/start');
     bridgeInfoEl.textContent = r.message || JSON.stringify(r);
@@ -118,6 +143,16 @@ window.addEventListener('DOMContentLoaded', () => {
   attachSSE('/api/logs/app', appLogEl);
   attachSSE('/api/bridge/remote-logs', remoteLogEl);
   refreshStatuses();
+
+  // Clipboard buttons for log panes
+  const cbBridge = document.getElementById('copy-bridge-log');
+  if (cbBridge) cbBridge.addEventListener('click', () => copyText(bridgeLogEl.textContent || '', cbBridge));
+  const cbApp = document.getElementById('copy-app-log');
+  if (cbApp) cbApp.addEventListener('click', () => copyText(appLogEl.textContent || '', cbApp));
+  const cbRemote = document.getElementById('copy-remote-log');
+  if (cbRemote) cbRemote.addEventListener('click', () => copyText(remoteLogEl.textContent || '', cbRemote));
+  const cbSsh = document.getElementById('copy-ssh-stream');
+  if (cbSsh) cbSsh.addEventListener('click', () => copyText(sshStreamEl.textContent || '', cbSsh));
 
   // SSH session handlers
   $('#ssh-start').addEventListener('click', async () => {

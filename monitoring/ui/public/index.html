@@ -42,19 +42,19 @@
 
       <section class="logs">
         <div class="log-pane">
-          <div class="pane-title">Bridge Logs</div>
+          <div class="pane-title"><span>Bridge Logs</span><div class="pane-actions"><button id="copy-bridge-log" class="icon small" title="Copy logs">Copy</button></div></div>
           <pre id="bridge-log" class="terminal"></pre>
         </div>
         <div class="log-pane">
-          <div class="pane-title">App Logs</div>
+          <div class="pane-title"><span>App Logs</span><div class="pane-actions"><button id="copy-app-log" class="icon small" title="Copy logs">Copy</button></div></div>
           <pre id="app-log" class="terminal"></pre>
         </div>
         <div class="log-pane">
-          <div class="pane-title">Remote Server Terminal (read-only)</div>
+          <div class="pane-title"><span>Remote Server Terminal (read-only)</span><div class="pane-actions"><button id="copy-remote-log" class="icon small" title="Copy logs">Copy</button></div></div>
           <pre id="remote-log" class="terminal"></pre>
         </div>
         <div class="log-pane">
-          <div class="pane-title">Interactive SSH Session</div>
+          <div class="pane-title"><span>Interactive SSH Session</span><div class="pane-actions"><button id="copy-ssh-stream" class="icon small" title="Copy logs">Copy</button></div></div>
           <div class="ssh-controls">
             <input id="ssh-cwd" placeholder="Optional: start in directory (e.g., /home/ec2-user)" />
             <button id="ssh-start">Start Session</button>

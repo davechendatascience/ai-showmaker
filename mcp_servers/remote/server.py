@@ -252,6 +252,14 @@ class RemoteMCPServer(AIShowmakerMCPServer):
         )
         self.ssh_pool = SSHConnectionPool()
         self.repo_manager = RepositoryManager(self.ssh_pool)
+        # Security policy for remote commands
+        self.allowed_base_dir = self.repo_manager.workspace_path
+        self.forbidden_paths = ["/etc", "/var", "/root", "/sys", "/proc", "/boot"]
+        self.write_like_patterns = [
+            ">>", ">", " tee ", "mkdir ", "touch ", "rm ", "cp ", "mv ", "chmod ", "chown ",
+            " ln ", "sed -i", "truncate ", "dd ", "echo ", "install ", "apk ", "yum ", "dnf ", "apt-get ", "apt ",
+        ]
+        self.admin_op_patterns = [" systemctl ", " service ", " firewall-cmd ", " ufw ", " iptables "]
     
     async def initialize(self) -> None:
         """Initialize the remote server and register tools."""
@@ -336,7 +344,120 @@ class RemoteMCPServer(AIShowmakerMCPServer):
             timeout=5
         )
         self.register_tool(current_repo_tool)
-        
+
+        # Git credential/configuration helpers
+        configure_git_ssh_tool = MCPTool(
+            name="configure_git_ssh",
+            description="Configure SSH-based git access: write private key, set perms, add known_hosts, set optional git user",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "private_key": {"type": "string", "description": "Private SSH key (id_ed25519) contents"},
+                    "known_hosts": {"type": "string", "description": "Optional known_hosts content", "default": None},
+                    "git_user_name": {"type": "string", "description": "Optional git user.name", "default": None},
+                    "git_user_email": {"type": "string", "description": "Optional git user.email", "default": None}
+                },
+                "required": ["private_key"]
+            },
+            execute_func=self._configure_git_ssh,
+            category="git",
+            timeout=60,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(configure_git_ssh_tool)
+
+        configure_git_https_tool = MCPTool(
+            name="configure_git_https",
+            description="Configure HTTPS-based git access using a PAT with an isolated credential store",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "token": {"type": "string", "description": "Personal Access Token (PAT)"},
+                    "host": {"type": "string", "description": "Git host", "default": "github.com"},
+                    "git_user_name": {"type": "string", "description": "Optional git user.name", "default": None},
+                    "git_user_email": {"type": "string", "description": "Optional git user.email", "default": None}
+                },
+                "required": ["token"]
+            },
+            execute_func=self._configure_git_https,
+            category="git",
+            timeout=60,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(configure_git_https_tool)
+
+        ensure_repo_tool = MCPTool(
+            name="ensure_repository",
+            description="Ensure repo exists and is up-to-date: clone if missing; otherwise fetch/checkout/pull branch",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "repo_url": {"type": "string", "description": "Repository URL (SSH or HTTPS)"},
+                    "repo_name": {"type": "string", "description": "Directory name under workspace/repositories"},
+                    "branch": {"type": "string", "description": "Branch to checkout/pull", "default": "main"}
+                },
+                "required": ["repo_url", "repo_name"]
+            },
+            execute_func=self._ensure_repository,
+            category="repository",
+            timeout=240,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(ensure_repo_tool)
+
+        # Environment inspection tool
+        environment_info_tool = MCPTool(
+            name="get_environment_info",
+            description="Collect system, runtime, network, and workspace info on the remote host (read-only)",
+            parameters={"type": "object", "properties": {}},
+            execute_func=self._get_environment_info,
+            category="environment",
+            timeout=60,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(environment_info_tool)
+
+        # Preflight + remediate + verify (composite)
+        preflight_setup_tool = MCPTool(
+            name="preflight_setup",
+            description="Run preflight_check; if missing prerequisites, optionally install them and verify again",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "profile": {"type": "string", "description": "web_app or python_app", "default": "web_app"},
+                    "auto_install": {"type": "boolean", "description": "Install missing prerequisites using sudo -n", "default": True},
+                    "extra_commands": {"type": "array", "items": {"type": "string"}, "description": "Optional additional shell commands to run after installs", "default": []}
+                }
+            },
+            execute_func=self._preflight_setup,
+            category="environment",
+            timeout=600,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(preflight_setup_tool)
+        # Preflight check tool (non-invasive)
+        preflight_tool = MCPTool(
+            name="preflight_check",
+            description="Run a non-invasive preflight check for a given profile (web_app|python_app)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "profile": {"type": "string", "description": "Profile to check: web_app or python_app", "default": "web_app"}
+                }
+            },
+            execute_func=self._preflight_check,
+            category="environment",
+            timeout=60,
+            max_retries=1,
+            retriable_error_codes=["connection_error", "timeout"]
+        )
+        self.register_tool(preflight_tool)
+
         # Register git operation tools
         git_status_tool = MCPTool(
             name="git_status",
@@ -712,7 +833,7 @@ class RemoteMCPServer(AIShowmakerMCPServer):
     
     async def _git_commit(self, message: str) -> str:
         """Commit changes to git."""
-        return await self.repo_manager.git_operation("commit", m=f'"{message}"')
+        return await self.repo_manager.git_operation("commit", **{"-m": f'"{message}"'})
     
     async def _git_push(self, branch: str = "main") -> str:
         """Push changes to remote repository."""
@@ -821,6 +942,8 @@ class RemoteMCPServer(AIShowmakerMCPServer):
     async def _execute_command(self, command: str, input_data: str = "") -> str:
         """Execute command on remote server with optional input."""
         try:
+            # Policy check
+            self._enforce_command_policy(command)
             # Create command with input piping if needed
             if input_data:
                 # Use printf to handle newlines properly for interactive programs
@@ -873,8 +996,53 @@ class RemoteMCPServer(AIShowmakerMCPServer):
                 else:
                     command_chain = ""
                 
+                # Pre-scan: deny likely interactive commands to avoid hangs
+                def _looks_interactive(cmd: str) -> str:
+                    try:
+                        norm = f" {cmd.strip()} ".lower()
+                        interactive_patterns = [
+                            (r"\baws\s+configure\b", "'aws configure' is interactive"),
+                            (r"\bvi\b|\bvim\b|\bnano\b|\bemacs\b", "editor command is interactive"),
+                            (r"\bless\b|\bmore\b|\btail\s+-f\b", "pager/follow is interactive"),
+                            (r"\btop\b|\bhtop\b|\bwatch\b", "monitoring loop is interactive"),
+                            (r"\bpasswd\b|\badduser\b|\buseradd\b", "user management may prompt"),
+                            (r"\bssh\b\s+|\bscp\b\s+|\bsftp\b\s+", "remote login/copy may be interactive"),
+                            (r"\bnpm\s+login\b", "npm login is interactive"),
+                            (r"^\s*python\s*$|^\s*node\s*$", "bare REPL is interactive"),
+                        ]
+                        import re
+                        for pat, reason in interactive_patterns:
+                            if re.search(pat, norm):
+                                return reason
+                        return ""
+                    except Exception:
+                        return ""
+
+                interactive_hit = None
+                for c in commands:
+                    if isinstance(c, str):
+                        reason = _looks_interactive(c)
+                        if reason:
+                            interactive_hit = f"Command appears interactive: {c}. Reason: {reason}. Use non-interactive flags or alternatives."
+                            break
+                if interactive_hit:
+                    return f"Session execution aborted: {interactive_hit}"
+
                 # Chain all commands with && to ensure they run in sequence and stop on failure
                 command_chain += " && ".join(commands)
+
+                # If any command is backgrounded (&), append a final 'wait' so background jobs (e.g., downloads) finish
+                try:
+                    has_bg = any(isinstance(c, str) and c.strip().endswith('&') for c in commands)
+                    if has_bg:
+                        command_chain = f"{command_chain} ; wait"
+                except Exception:
+                    pass
+
+                # Policy check on the whole chain and each command
+                self._enforce_command_policy(command_chain)
+                for c in commands:
+                    self._enforce_command_policy(c)
                 
                 self.logger.info(f"Executing chained commands: {command_chain}")
                 
@@ -908,6 +1076,31 @@ class RemoteMCPServer(AIShowmakerMCPServer):
             raise ConnectionError(os.environ.get("AWS_HOST", "unknown"), f"SSH error: {str(e)}")
         except Exception as e:
             raise Exception(f"Session command execution failed: {str(e)}")
+
+    # --- Security policy enforcement for remote commands ---
+    def _enforce_command_policy(self, command: str) -> None:
+        """Deny clearly dangerous write operations outside the workspace and sensitive admin ops.
+
+        This is a conservative, pattern-based guard intended to prevent accidental writes to
+        system directories like /var, /etc, /root. Read-only commands are allowed.
+        """
+        try:
+            normalized = f" {command.strip()} ".lower()
+
+            # Disallow admin operations unless explicitly whitelisted in future
+            if any(pat in normalized for pat in self.admin_op_patterns):
+                raise SecurityError("Administrative operations are not allowed (systemctl/service/firewall changes)")
+
+            # If command looks write-like and references a forbidden path, deny
+            if any(pat in normalized for pat in self.write_like_patterns):
+                for fpath in self.forbidden_paths:
+                    if f" {fpath}" in normalized or f" {fpath}/" in normalized:
+                        raise SecurityError(f"Write operations to protected path '{fpath}' are not allowed")
+        except SecurityError:
+            raise
+        except Exception:
+            # Fail-open if sanitizer errors; don't block legitimate commands due to parsing
+            return
 
     async def _execute_development_workflow(self, workflow_type: str = "web_app") -> str:
         """
@@ -961,7 +1154,19 @@ class RemoteMCPServer(AIShowmakerMCPServer):
     async def _write_file(self, filename: str, content: str) -> str:
         """Write file to remote server via SFTP."""
         try:
-            # Validate filename for security
+            # Normalize: allow absolute paths under workspace/current repo by converting to relative
+            try:
+                from pathlib import PurePosixPath
+                base_dir = self.repo_manager.current_repo or self.repo_manager.workspace_path
+                if isinstance(filename, str) and filename.startswith('/'):
+                    pp = str(PurePosixPath(filename))
+                    if pp == base_dir or pp.startswith(base_dir + '/'):
+                        filename = str(PurePosixPath(pp).relative_to(PurePosixPath(base_dir)))
+                    else:
+                        raise SecurityError(f"Path traversal detected in '{filename}'")
+            except Exception:
+                pass
+            # Validate filename for security (must be relative with allowed extension)
             filename = validate_filename(filename)
             
             with self.ssh_pool.get_connection() as ssh:
@@ -1006,6 +1211,12 @@ class RemoteMCPServer(AIShowmakerMCPServer):
                 try:
                     from pathlib import PurePosixPath
                     base_dir = self.repo_manager.current_repo or self.repo_manager.workspace_path
+                    if isinstance(filename, str) and filename.startswith('/'):
+                        pp = str(PurePosixPath(filename))
+                        if pp == base_dir or pp.startswith(base_dir + '/'):
+                            filename = str(PurePosixPath(pp).relative_to(PurePosixPath(base_dir)))
+                        else:
+                            raise Exception(f"Path '{filename}' is outside the workspace")
                     target_path = str(PurePosixPath(base_dir) / filename)
                     with sftp.open(target_path, 'r') as f:
                         content = f.read()
@@ -1038,7 +1249,349 @@ class RemoteMCPServer(AIShowmakerMCPServer):
                     
         except Exception as e:
             raise Exception(f"Directory listing failed: {str(e)}")
-    
+
+    async def _get_environment_info(self) -> str:
+        """Return a concise snapshot of the remote development environment."""
+        try:
+            with self.ssh_pool.get_connection() as ssh:
+                def run(cmd: str) -> Dict[str, Any]:
+                    stdin, stdout, stderr = ssh.exec_command(cmd, timeout=20)
+                    exit_code = stdout.channel.recv_exit_status()
+                    out = stdout.read().decode('utf-8', errors='replace').strip()
+                    err = stderr.read().decode('utf-8', errors='replace').strip()
+                    return {"cmd": cmd, "exit": exit_code, "out": out, "err": err}
+
+                # Basic system
+                sys_uname = run("uname -a || ver")
+                os_release = run("cat /etc/os-release 2>/dev/null || echo N/A")
+                uptime = run("uptime || who -b 2>/dev/null || echo N/A")
+
+                # Resources
+                cpu = run("nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo N/A")
+                mem = run("free -m 2>/dev/null || vm_stat 2>/dev/null || echo N/A")
+                disk = run("df -h / 2>/dev/null || echo N/A")
+
+                # Runtimes/tools
+                node = run("node -v 2>&1 || echo N/A")
+                npm = run("npm -v 2>&1 || echo N/A")
+                py = run("python3 --version 2>&1 || echo N/A")
+                pip = run("pip3 --version 2>&1 || echo N/A")
+                gitv = run("git --version 2>&1 || echo N/A")
+                docker = run("docker --version 2>&1 || echo N/A")
+
+                # Network
+                net_github = run("sh -lc 'ping -c 1 -W 2 github.com >/dev/null 2>&1 && echo ok || echo fail' || echo N/A")
+                curl_github = run("sh -lc 'curl -Is https://github.com | head -1' || echo N/A")
+
+                # Git identity
+                git_user = run("git config --global user.name 2>/dev/null || echo" )
+                git_email = run("git config --global user.email 2>/dev/null || echo" )
+                cred_helper = run("git config --global credential.helper 2>/dev/null || echo" )
+
+                # SSH state
+                home = run('printf "$HOME"')
+                ssh_dir = f"{home['out'] or '/home/ec2-user'}/.ssh"
+                ssh_ls = run(f"ls -l {ssh_dir} 2>/dev/null || echo 'no ~/.ssh' ")
+
+                # Workspace
+                workspace = self.repo_manager.workspace_path
+                ws_exists = run(f"test -d {workspace} && echo exists || echo missing")
+                repos_list = run(f"ls -1 {workspace}/repositories 2>/dev/null || echo (none)")
+
+                # Listening ports (summary)
+                ports = run("sh -lc 'command -v ss >/dev/null && ss -ltn || netstat -tln 2>/dev/null || echo N/A'")
+
+                summary = {
+                    "system": {
+                        "uname": sys_uname["out"],
+                        "os_release": os_release["out"],
+                        "uptime": uptime["out"],
+                    },
+                    "resources": {
+                        "cpu_cores": cpu["out"],
+                        "memory": mem["out"],
+                        "disk_root": disk["out"],
+                    },
+                    "runtimes": {
+                        "node": node["out"],
+                        "npm": npm["out"],
+                        "python3": py["out"],
+                        "pip3": pip["out"],
+                        "git": gitv["out"],
+                        "docker": docker["out"],
+                    },
+                    "network": {
+                        "ping_github": net_github["out"],
+                        "curl_github": curl_github["out"],
+                    },
+                    "git_config": {
+                        "user.name": git_user["out"],
+                        "user.email": git_email["out"],
+                        "credential.helper": cred_helper["out"],
+                    },
+                    "ssh": {
+                        "home": home["out"],
+                        "ssh_dir": ssh_dir,
+                        "listing": ssh_ls["out"],
+                    },
+                    "workspace": {
+                        "path": workspace,
+                        "exists": ws_exists["out"],
+                        "repositories": repos_list["out"],
+                    },
+                    "ports": ports["out"],
+                }
+
+                # Return pretty JSON so the agent can parse/use it
+                return json.dumps(summary, indent=2)
+        except Exception as e:
+            raise Exception(f"Environment info collection failed: {str(e)}")
+
+    async def _preflight_check(self, profile: str = "web_app") -> str:
+        """Evaluate environment readiness for common development/deploy profiles (read-only)."""
+        try:
+            import math
+            # Reuse environment probe
+            raw = await self._get_environment_info()
+            info = json.loads(raw)
+
+            def present(val: str) -> bool:
+                if not isinstance(val, str):
+                    return False
+                s = val.strip().lower()
+                if not s:
+                    return False
+                if "not found" in s or s.endswith("n/a"):
+                    return False
+                return True
+
+            missing = []
+            recommendations = []
+            distro_pm = "dnf" if "amzn" in info.get("system", {}).get("os_release", "").lower() else "apt"
+
+            if profile == "web_app":
+                if not present(info.get("runtimes", {}).get("git", "")):
+                    missing.append("git")
+                    if distro_pm == "dnf":
+                        recommendations.append("sudo -n dnf -y install git")
+                    else:
+                        recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y git")
+                if not present(info.get("runtimes", {}).get("node", "")):
+                    missing.append("nodejs")
+                    if distro_pm == "dnf":
+                        recommendations.append("sudo -n dnf -y install nodejs npm")
+                    else:
+                        recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y nodejs npm")
+                if not present(info.get("runtimes", {}).get("npm", "")):
+                    # avoid duplicate if nodejs covers it
+                    if "nodejs" not in missing:
+                        missing.append("npm")
+                        if distro_pm == "dnf":
+                            recommendations.append("sudo -n dnf -y install npm")
+                        else:
+                            recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y npm")
+            elif profile == "python_app":
+                # For python app: ensure python3, pip3, git
+                if not present(info.get("runtimes", {}).get("git", "")):
+                    missing.append("git")
+                    if distro_pm == "dnf":
+                        recommendations.append("sudo -n dnf -y install git")
+                    else:
+                        recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y git")
+                if not present(info.get("runtimes", {}).get("python3", "")):
+                    missing.append("python3")
+                    if distro_pm == "dnf":
+                        recommendations.append("sudo -n dnf -y install python3")
+                    else:
+                        recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y python3")
+                if not present(info.get("runtimes", {}).get("pip3", "")):
+                    missing.append("pip3")
+                    if distro_pm == "dnf":
+                        recommendations.append("sudo -n dnf -y install python3-pip")
+                    else:
+                        recommendations.append("sudo -n apt-get update && sudo -n apt-get install -y python3-pip")
+
+            # Workspace hint
+            ws = info.get("workspace", {})
+            if ws.get("exists") != "exists":
+                recommendations.insert(0, f"mkdir -p {self.repo_manager.workspace_path} && chmod 755 {self.repo_manager.workspace_path}")
+
+            status = "ok" if not missing else "needs_setup"
+            result = {
+                "profile": profile,
+                "status": status,
+                "missing": missing,
+                "recommendations": recommendations,
+                "environment": info,
+            }
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            raise Exception(f"Preflight check failed: {str(e)}")
+
+    async def _preflight_setup(self, profile: str = "web_app", auto_install: bool = True, extra_commands: Optional[List[str]] = None) -> str:
+        """Composite: preflight -> optional install -> verify. Returns a structured JSON report."""
+        try:
+            steps: List[Dict[str, Any]] = []
+            # Step 1: preflight
+            preflight_raw = await self._preflight_check(profile)
+            preflight = json.loads(preflight_raw)
+            steps.append({"step": "preflight", "result": preflight})
+
+            if preflight.get("status") == "ok" or not auto_install:
+                report = {"profile": profile, "auto_install": auto_install, "completed": preflight.get("status") == "ok", "steps": steps}
+                return json.dumps(report, indent=2)
+
+            # Step 2: install recommendations
+            recs = preflight.get("recommendations") or []
+            cmds: List[str] = []
+            for rec in recs:
+                if isinstance(rec, str) and rec.strip():
+                    cmds.append(rec.strip())
+            if extra_commands:
+                for c in extra_commands:
+                    if isinstance(c, str) and c.strip():
+                        cmds.append(c.strip())
+
+            if not cmds:
+                steps.append({"step": "install", "note": "No recommendations to apply"})
+            else:
+                install_result = await self._execute_commands_in_session(cmds)
+                steps.append({"step": "install", "commands": cmds, "result": install_result})
+
+            # Step 3: verify again
+            verify_raw = await self._preflight_check(profile)
+            verify = json.loads(verify_raw)
+            steps.append({"step": "verify", "result": verify})
+
+            completed = verify.get("status") == "ok"
+            report = {"profile": profile, "auto_install": auto_install, "completed": completed, "steps": steps}
+            return json.dumps(report, indent=2)
+        except Exception as e:
+            raise Exception(f"Preflight setup failed: {str(e)}")
+    # --- New helper tools for git configuration and ensuring repository ---
+    async def _configure_git_ssh(self, private_key: str, known_hosts: Optional[str] = None,
+                                 git_user_name: Optional[str] = None, git_user_email: Optional[str] = None) -> str:
+        """Configure SSH for git on the remote host safely (idempotent)."""
+        try:
+            with self.ssh_pool.get_connection() as ssh:
+                # Determine home directory
+                stdin, stdout, stderr = ssh.exec_command('printf "$HOME"')
+                home = stdout.read().decode('utf-8', errors='replace').strip() or '/home/ec2-user'
+                ssh_dir = f"{home}/.ssh"
+                key_path = f"{ssh_dir}/id_ed25519"
+                kh_path = f"{ssh_dir}/known_hosts"
+
+                # Ensure .ssh exists with proper perms
+                ssh.exec_command(f"mkdir -p '{ssh_dir}' && chmod 700 '{ssh_dir}'")
+
+                # Write private key via SFTP to preserve newlines
+                sftp = ssh.open_sftp()
+                try:
+                    with sftp.file(key_path, 'w') as f:
+                        f.write(private_key if private_key.endswith('\n') else private_key + '\n')
+                    sftp.chmod(key_path, 0o600)
+                finally:
+                    sftp.close()
+
+                # Populate known_hosts
+                if known_hosts:
+                    sftp2 = ssh.open_sftp()
+                    try:
+                        with sftp2.file(kh_path, 'w') as f:
+                            f.write(known_hosts if known_hosts.endswith('\n') else known_hosts + '\n')
+                    finally:
+                        sftp2.close()
+                else:
+                    # Try to add github.com automatically
+                    ssh.exec_command(f"ssh-keyscan -H github.com >> '{kh_path}' 2>/dev/null || true")
+
+                # Optional git identity
+                cfg_msgs = []
+                if git_user_name:
+                    ssh.exec_command(f"git config --global user.name {json.dumps(git_user_name)}")
+                    cfg_msgs.append("set user.name")
+                if git_user_email:
+                    ssh.exec_command(f"git config --global user.email {json.dumps(git_user_email)}")
+                    cfg_msgs.append("set user.email")
+
+                return "SSH git configured: key installed; known_hosts updated; " + (", ".join(cfg_msgs) if cfg_msgs else "no git user changes")
+        except Exception as e:
+            raise Exception(f"SSH git configuration failed: {str(e)}")
+
+    async def _configure_git_https(self, token: str, host: str = "github.com",
+                                   git_user_name: Optional[str] = None, git_user_email: Optional[str] = None) -> str:
+        """Configure HTTPS git access using a PAT with an isolated credential store."""
+        try:
+            with self.ssh_pool.get_connection() as ssh:
+                # Determine home directory
+                stdin, stdout, stderr = ssh.exec_command('printf "$HOME"')
+                home = stdout.read().decode('utf-8', errors='replace').strip() or '/home/ec2-user'
+                cred_file = f"{home}/.git-credentials-ai"
+                # Configure credential helper to use isolated file
+                ssh.exec_command(f"git config --global credential.helper 'store --file {cred_file}'")
+                # Write credentials (masked in return)
+                sftp = ssh.open_sftp()
+                try:
+                    entry = f"https://x-access-token:{token}@{host}\n"
+                    with sftp.file(cred_file, 'w') as f:
+                        f.write(entry)
+                    sftp.chmod(cred_file, 0o600)
+                finally:
+                    sftp.close()
+
+                cfg_msgs = ["credential store configured"]
+                if git_user_name:
+                    ssh.exec_command(f"git config --global user.name {json.dumps(git_user_name)}")
+                    cfg_msgs.append("set user.name")
+                if git_user_email:
+                    ssh.exec_command(f"git config --global user.email {json.dumps(git_user_email)}")
+                    cfg_msgs.append("set user.email")
+
+                masked = (token[:4] + "***") if len(token) >= 4 else "***"
+                return f"HTTPS git configured for {host}; token {masked}; " + ", ".join(cfg_msgs)
+        except Exception as e:
+            raise Exception(f"HTTPS git configuration failed: {str(e)}")
+
+    async def _ensure_repository(self, repo_url: str, repo_name: str, branch: str = "main") -> str:
+        """Ensure a repository exists/cloned and updated on the remote."""
+        try:
+            with self.ssh_pool.get_connection() as ssh:
+                workspace = self.repo_manager.workspace_path
+                repos_path = f"{workspace}/repositories"
+                repo_path = f"{repos_path}/{repo_name}"
+
+                steps = []
+                # Ensure directories
+                ssh.exec_command(f"mkdir -p '{repos_path}' && chmod 755 '{repos_path}'")
+
+                # Check if repo exists
+                stdin, stdout, stderr = ssh.exec_command(f"test -d '{repo_path}/.git' && echo exists || echo missing")
+                status = stdout.read().decode().strip()
+
+                if status == 'missing':
+                    # Clone fresh
+                    clone_cmd = f"cd '{repos_path}' && git clone {repo_url} '{repo_name}'"
+                    stdin, stdout, stderr = ssh.exec_command(clone_cmd)
+                    exit_code = stdout.channel.recv_exit_status()
+                    out = stdout.read().decode('utf-8', errors='replace')
+                    err = stderr.read().decode('utf-8', errors='replace')
+                    steps.append(f"clone: exit={exit_code}\n{(out or err)[:500]}")
+                    if exit_code != 0:
+                        return "\n".join(steps)
+
+                # Update existing or newly cloned repo
+                cmd = (
+                    f"cd '{repo_path}' && git fetch --all && git checkout {branch} && git pull --ff-only"
+                )
+                stdin, stdout, stderr = ssh.exec_command(cmd)
+                exit_code = stdout.channel.recv_exit_status()
+                out = stdout.read().decode('utf-8', errors='replace')
+                err = stderr.read().decode('utf-8', errors='replace')
+                steps.append(f"update: exit={exit_code}\n{(out or err)[:800]}")
+
+                return "\n".join(steps)
+        except Exception as e:
+            raise Exception(f"Ensure repository failed: {str(e)}")
     async def shutdown(self) -> None:
         """Shutdown the remote server."""
         self.logger.info("Remote MCP Server shutting down")

@@ -42,7 +42,8 @@
     "node_modules",
     "dist",
     "**/*.test.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "src/index.ts"
   ],
   "ts-node": {
     "esm": false,

@@ -22,6 +22,8 @@ export class HTTPMCPClient {
   private servers: Map<string, HTTPMCPServer> = new Map();
   private tools: MCPToolWrapper[] = [];
   private baseUrl: string;
+  // Serialize requests to avoid keep-alive/connection reuse edge cases with the simple bridge
+  private inflight: Promise<any> | null = null;
 
   constructor(baseUrl?: string) {
     const envBase = (process.env['MCP_HTTP_BASE'] || '').trim();
@@ -109,14 +111,14 @@ export class HTTPMCPClient {
             body,
           });
 
-          // Retry strategy: handle thrown socket errors and certain 5xx once
+          // Retry strategy: handle thrown socket errors and certain 5xx up to 3 attempts
           let response: Response;
           for (let attempt = 1; ; attempt++) {
             try {
               response = await doFetch();
               if (!response.ok && (response.status === 502 || response.status === 503 || response.status === 504)) {
-                if (attempt >= 2) break;
-                await new Promise(r => setTimeout(r, 150));
+                if (attempt >= 3) break;
+                await new Promise(r => setTimeout(r, 150 * attempt));
                 continue;
               }
               break;
@@ -124,34 +126,18 @@ export class HTTPMCPClient {
               const code = err?.cause?.code || err?.code;
               const msg = String(err?.message || err);
               const isSocketClose = code === 'UND_ERR_SOCKET' || msg.includes('fetch failed') || msg.includes('other side closed');
-              if (attempt >= 2 || !isSocketClose) {
+              if (attempt >= 3 || !isSocketClose) {
                 throw err;
               }
-              await new Promise(r => setTimeout(r, 150));
+              await new Promise(r => setTimeout(r, 150 * attempt));
               continue;
             }
           }
           
           if (!response.ok) {
-            // Fallback via GET (proxy supports /execute_get)
-            try {
-              const qs = new URLSearchParams({
-                tool_name: tool.name,
-                params: JSON.stringify(params ?? {}),
-              }).toString();
-              const getResp = await fetch(`${this.baseUrl}/execute_get?${qs}`, {
-                method: 'GET',
-                headers: { 'Connection': 'close' },
-              });
-              if (getResp.ok) {
-                const resJson = await getResp.json();
-                console.log(`?? POST failed; GET fallback succeeded for ${tool.name}`);
-                return resJson;
-              }
-            } catch (_) {
-              // ignore and throw below
-            }
-            throw new Error(`HTTP error! status: ${response.status}`);
+            // Surface clear error; do not fall back to GET to avoid double-execution noise
+            const text = await response.text().catch(() => '');
+            throw new Error(`HTTP ${response.status} ${response.statusText} for ${tool.name}: ${text.slice(0,200)}`);
           }
           
           const result = await response.json();
@@ -236,8 +222,13 @@ export class HTTPMCPClient {
     if (!tool) {
       throw new Error(`Tool ${toolName} not found`);
     }
-
-    return await tool.execute(params);
+    // Serialize to avoid socket reuse edge-cases with the minimal Python bridge
+    while (this.inflight) {
+      try { await this.inflight; } catch { break; }
+    }
+    const p = tool.execute(params).finally(() => { this.inflight = null; });
+    this.inflight = p;
+    return await p;
   }
 
   /**
