@@ -51,7 +51,12 @@ function spawnBridge() {
   if (bridgeProcess && !bridgeProcess.killed) {
     return { ok: true, message: 'Bridge already running', pid: bridgeProcess.pid };
   }
-  const pythonCmd = process.env.PYTHON || detectVenvPython() || 'python';
+  // Prefer explicit env var or virtualenv; otherwise fall back to python3 on *nix
+  // (common now that `python` is absent) and `python` on Windows.
+  const pythonCmd =
+    process.env.PYTHON ||
+    detectVenvPython() ||
+    (process.platform === 'win32' ? 'python' : 'python3');
   const script = path.resolve(process.cwd(), 'full_mcp_bridge.py');
   const env = {
     ...process.env,
@@ -408,12 +413,16 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/remote/session/stream')) {
     // Proxy SSE by forwarding query string as-is
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders?.();
     const httpModule = require('http');
-    const req2 = httpModule.request({ hostname: 'localhost', port: 8000, path: '/remote/session/stream' + (url.search || ''), method: 'GET' }, (pres) => {
-      pres.on('data', (chunk) => { try { res.write(chunk); } catch(_){} });
-      pres.on('end', () => { try { res.end(); } catch(_){} });
-    });
-    req2.on('error', () => { try { res.end(); } catch(_){} });
+    const req2 = httpModule.request(
+      { hostname: 'localhost', port: 8000, path: '/remote/session/stream' + (url.search || ''), method: 'GET', timeout: 0 },
+      (pres) => {
+        pres.on('data', (chunk) => { try { res.write(chunk); } catch(_){} });
+        pres.on('end', () => { try { res.end(); } catch(_){} });
+      }
+    );
+    req2.on('error', (err) => { try { res.write(`data: [proxy error] ${String(err)}\n\n`); res.end(); } catch(_){} });
     req2.end();
     return;
   }

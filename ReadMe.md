@@ -52,7 +52,8 @@ A TypeScript-based AI agent framework that integrates with MCP (Model Context Pr
 
 4. **Start the MCP bridge:**
    ```bash
-   python full_mcp_bridge.py
+   # Use python3 if your system doesn't provide `python`
+   PYTHON=python3 python full_mcp_bridge.py
    ```
 
 5. **Run the agent:**
@@ -285,7 +286,8 @@ Where it lives
 
 - Start the MCP HTTP bridge (Python):
   ```bash
-  python full_mcp_bridge.py
+  # Use python3 if `python` is not on PATH
+  PYTHON=python3 python full_mcp_bridge.py
   ```
 - Create a `.env` with at least:
   ```bash

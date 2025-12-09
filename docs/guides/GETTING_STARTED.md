@@ -43,8 +43,8 @@ cp .env.example .env
 
 ### 4. Start the System
 ```bash
-# Start the MCP bridge (Python)
-python full_mcp_bridge.py
+# Start the MCP bridge (Python). Use python3 if `python` is not available.
+PYTHON=python3 python full_mcp_bridge.py
 
 # In another terminal, start the monitoring UI
 npm run monitor:ui

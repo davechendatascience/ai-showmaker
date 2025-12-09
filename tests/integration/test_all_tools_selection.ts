@@ -25,11 +25,11 @@ async function testAllToolsSelection() {
         await mcpClient.initialize();
         console.log('   ✅ MCP Client initialized');
 
-        const apiKey = process.env['OPENAI_KEY'];
+        const apiKey = process.env['OPENAI_KEY'] || process.env['OPENAI_API_KEY'];
         console.log(`   🔑 API Key loaded: ${apiKey ? 'Yes (length: ' + apiKey.length + ')' : 'No'}`);
         
         if (!apiKey) {
-            throw new Error('OPENAI_KEY not found in environment variables');
+            throw new Error('OPENAI_KEY / OPENAI_API_KEY not found in environment variables');
         }
         
         const llm = new OpenAILLM({

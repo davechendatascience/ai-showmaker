@@ -67,8 +67,8 @@ export interface PlanNode {
   /** Scenario predictions for this plan */
   scenarios: ToolScenario[];
   
-  /** Validator feedback integration */
-  validatorIntegration: ValidatorIntegration;
+  /** Validator feedback integration (deprecated) */
+  validatorIntegration?: ValidatorIntegration;
   
   /** Execution metadata */
   metadata: PlanMetadata;

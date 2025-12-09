@@ -896,7 +896,7 @@ SCENARIOS: SUCCESS,VALIDATION_ERROR,TIMEOUT`);
     // Apply validator integration
     for (const plan of scored) {
       plan.validatorIntegration = this.calculateValidatorIntegration(plan);
-      plan.score = Math.min(1, plan.score + plan.validatorIntegration.scoreModifier);
+      plan.score = Math.min(1, plan.score + (plan.validatorIntegration?.scoreModifier || 0));
     }
     
     return scored;

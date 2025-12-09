@@ -3,11 +3,13 @@
  * Main application for interactive querying with the LangGraph MCP Agent
  */
 
+import './polyfills/fetch';
+import './polyfills/streams';
 import * as dotenv from 'dotenv';
 import * as readline from 'readline';
 import { HTTPMCPClient } from './mcp/http-mcp-client';
 import { SessionManager } from './core/session-manager';
-import { EnhancedBestFirstSearchAgentWithMemoryBank } from './agents/enhanced-best-first-search-agent-with-memory-bank';
+import { PlanExecuteAgent } from './agents/plan-execute-agent';
 import { OpenAILLM } from './llm/openai-llm';
 
 // Load environment variables
@@ -17,7 +19,7 @@ class InteractiveApp {
     private mcpClient!: HTTPMCPClient;
     private llm!: OpenAILLM;
     private sessionManager!: SessionManager;
-    private agent!: EnhancedBestFirstSearchAgentWithMemoryBank;
+    private agent!: PlanExecuteAgent;
     private rl: readline.Interface;
     private sessionId!: string;
     private isInitialized: boolean = false;
@@ -45,9 +47,10 @@ class InteractiveApp {
 
             // Initialize LLM
             console.log('?? Initializing OpenAI LLM...');
-            const apiKey = process.env['OPENAI_KEY'];
+            // Accept both OPENAI_KEY and OPENAI_API_KEY to match common env naming
+            const apiKey = process.env['OPENAI_KEY'] || process.env['OPENAI_API_KEY'];
             if (!apiKey) {
-                throw new Error('OPENAI_KEY not found in environment variables');
+                throw new Error('OPENAI_KEY / OPENAI_API_KEY not found in environment variables');
             }
             
             this.llm = new OpenAILLM({
@@ -64,37 +67,23 @@ class InteractiveApp {
             this.sessionId = this.sessionManager.createSession('Interactive Session').id;
             console.log(`   ??Session created: ${this.sessionId}`);
 
-            // Initialize Enhanced Best-First Search Agent
-            console.log('?? Initializing Enhanced Best-First Search Agent...');
-            this.agent = new EnhancedBestFirstSearchAgentWithMemoryBank(this.mcpClient, this.llm, this.sessionManager);
-            console.log('   ??Enhanced Best-First Search Agent initialized');
-            console.log('   Features: Shared Memory System, Memory Bank, Enhanced Validation, Persistent Learning');
-            
-            // Print agent/validator tunables for visibility
-            const bw = Number(process.env['BFS_BEAM_WIDTH'] || 4);
-            const mi = Number(process.env['BFS_MAX_ITER'] || 40);
-            const ms = Number(process.env['BFS_MIN_SCORE'] || 0.4);
-            const ve = Number(process.env['BFS_VALIDATOR_EVERY'] || 1);
-            const vc = Number(process.env['BFS_VALIDATOR_CONF'] || 0.7);
-            console.log(`   Config: BEAM_WIDTH=${bw}, MAX_ITER=${mi}, MIN_SCORE=${ms}`);
-            console.log(`   Validator: every ${ve} step(s), min_conf=${vc}`);
-            
-            const sp = String(process.env['BFS_SCENARIO_PREDICTION'] || 'true');
-            const lfo = String(process.env['BFS_LEARN_FROM_OUTCOMES'] || 'true');
-            console.log(`   Enhanced: SCENARIO_PREDICTION=${sp}, LEARN_FROM_OUTCOMES=${lfo}`);
+            // Initialize Plan-Execute Agent
+            console.log('🤖 Initializing Plan-Execute Agent (no BFS)...');
+            this.agent = new PlanExecuteAgent(this.mcpClient, this.llm, this.sessionManager);
+            console.log('   ✅Plan-Execute Agent initialized');
+            console.log('   Features: upfront plan, sequential execution, failure-driven replanning, shared memory');
 
             this.isInitialized = true;
-            console.log(`\n?? AI-Showmaker is ready with Enhanced Best-First Search Agent!`);
-            console.log('?? Best-First Search with Policy+Value (ReAct memory)');
-            console.log('?? Enhanced with Scenario Prediction & State Management');
-            console.log('? Type your queries below. Use "help" for commands, "exit" to quit.');
+            console.log(`\n🧠 AI-Showmaker is ready with the Plan-Execute Agent!`);
+            console.log('🗺️ Strategy: pre-plan → execute sequentially → replan on failure');
+            console.log('💬 Type your queries below. Use "help" for commands, "exit" to quit.');
             console.log('='.repeat(60));
 
         } catch (error) {
             console.error('??Failed to initialize AI-Showmaker:', error);
             console.log('\n? Troubleshooting:');
             console.log('   1. Make sure the MCP bridge is running: python full_mcp_bridge.py');
-            console.log('   2. Check your .env file has INFERENCE_NET_KEY');
+            console.log('   2. Check your .env file has OPENAI_KEY (or OPENAI_API_KEY)');
             console.log('   3. Ensure all dependencies are installed: npm install');
             process.exit(1);
         }
@@ -281,21 +270,13 @@ class InteractiveApp {
         console.log('?'.repeat(40));
         
         const state = this.agent.getState();
-        console.log(`  Current Iteration: ${state.iteration}`);
-        console.log(`  Frontier Size: ${state.frontier.length}`);
-        console.log(`  Scratchpad Size: ${state.scratchpad.length}`);
-        console.log(`  Validator Interactions: ${state.metrics.validatorInteractions}`);
-        console.log(`  Success Rate: ${(state.metrics.successRate * 100).toFixed(1)}%`);
-        console.log(`  Average Execution Time: ${state.metrics.averageExecutionTime.toFixed(0)}ms`);
-        console.log(`  Prediction Accuracy: ${(state.metrics.predictionAccuracy * 100).toFixed(1)}%`);
-        
-        if (state.validatorState.lastValidation) {
-            const lastVal = state.validatorState.lastValidation;
-            console.log(`  Last Validation: completed=${lastVal.completed}, confidence=${lastVal.confidence.toFixed(2)}`);
-        }
-        
-        if (state.validatorState.hints.length > 0) {
-            console.log(`  Validator Hints: ${state.validatorState.hints.join(', ')}`);
+        console.log(`  Current Task: ${state.task || 'none'}`);
+        console.log(`  Plan steps: ${state.steps} (done ${state.completed}, pending ${state.pending}, failed ${state.failed})`);
+        console.log(`  Replans used: ${state.replans}`);
+        const preview = state.plan.slice(0, 3).map(s => `    - ${s.title} [${s.status}]`).join('\n');
+        if (preview) {
+            console.log('  Next steps:');
+            console.log(preview);
         }
         
         console.log('');
@@ -305,19 +286,7 @@ class InteractiveApp {
         console.log('\n?? Scenario Prediction Cache:');
         console.log('?'.repeat(40));
         
-        const cache = this.agent.getScenarioCache();
-        if (cache.size === 0) {
-            console.log('  No scenario predictions cached yet.');
-            return;
-        }
-
-        cache.forEach((prediction, _key) => {
-            console.log(`  Tool: ${prediction.tool}`);
-            console.log(`  Confidence: ${(prediction.confidence * 100).toFixed(1)}%`);
-            console.log(`  Scenarios: ${prediction.scenarios.map(s => `${s.type}(${(s.probability * 100).toFixed(0)}%)`).join(', ')}`);
-            console.log(`  Cached: ${new Date(prediction.timestamp).toLocaleTimeString()}`);
-            console.log('');
-        });
+        console.log('  Scenario prediction disabled in Plan-Execute agent.');
     }
 }
 

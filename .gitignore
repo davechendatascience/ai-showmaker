@@ -29,3 +29,6 @@ Thumbs.dbllama.cpp/
 
 # npm
 node_modules/
+
+# dist
+dist/

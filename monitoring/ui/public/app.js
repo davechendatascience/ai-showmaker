@@ -172,7 +172,10 @@ window.addEventListener('DOMContentLoaded', () => {
         appendLine(sshStreamEl, txt);
       } catch(e){}
     };
-    es.onerror = () => {};
+    es.onerror = (err) => {
+      appendLine(sshStreamEl, '[sse] stream error; reconnect or restart session');
+      console.warn('SSH SSE error', err);
+    };
   });
 
   $('#ssh-close').addEventListener('click', async () => {

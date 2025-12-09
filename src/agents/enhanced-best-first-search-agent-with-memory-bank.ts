@@ -11,7 +11,6 @@ import { SessionManager } from '../core/session-manager';
 import { RichMemoryManager, createRichMemorySystem } from '../core/memory';
 import { BaseLanguageModel } from '@langchain/core/language_models/base';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { ValidatorAgent } from './validator-agent';
 import {
   SearchState,
   PlanNode,
@@ -41,7 +40,6 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
   private llm: BaseLanguageModel;
   private sessionManager: SessionManager;
   private richMemory: RichMemoryManager;
-  private validator: ValidatorAgent;
   private sharedMemory: RichMemoryManager; // Alias for compatibility
   
   // Enhanced state management
@@ -82,8 +80,6 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
     // Initialize Rich Memory system
     this.richMemory = createRichMemorySystem();
     this.sharedMemory = this.richMemory; // Alias for compatibility
-    
-    this.validator = new ValidatorAgent(this.llm, this.richMemory);
     
     // Initialize state
     this.state = this.initializeState();
@@ -191,9 +187,9 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
     console.log(`[EnhancedBFS-Memory] Applied failure awareness to ${failureAwarePlans.length} plans`);
     
     const scoreStartTime = Date.now();
-    const scoredPlans = await this.scorePlansWithValidatorIntegration(task, failureAwarePlans);
+    const scoredPlans = await this.scorePlans(task, failureAwarePlans, []);
     const scoreTime = Date.now() - scoreStartTime;
-    console.log(`[EnhancedBFS-Memory] Scored initial plans with validator integration in ${scoreTime}ms`);
+    console.log(`[EnhancedBFS-Memory] Scored initial plans in ${scoreTime}ms`);
     
     this.sortFrontier(scoredPlans);
     this.state.frontier = scoredPlans;
@@ -249,6 +245,14 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
           iter,
           [executionResult.tool || 'none']
         );
+
+        // Generate alternate plans based on the failure and push onto frontier
+        const alternates = this.generateAlternatePlans(node, executionResult.observation || '');
+        if (alternates.length) {
+          console.log(`[EnhancedBFS-Memory] Generated ${alternates.length} alternate plan(s) after failure`);
+          this.state.frontier.push(...alternates);
+          this.sortFrontier(this.state.frontier);
+        }
       } else {
         // Prepare tool data for file content capture
         let toolData = undefined;
@@ -302,7 +306,7 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
 
       // Generate next plans
       const children = await this.proposePlansWithMemory(task, tools, this.config.beamWidth, node.depth + 1, memoryContext);
-      const scored = await this.scorePlansWithValidatorIntegration(task, children);
+      const scored = await this.scorePlans(task, children, this.getExecutionHistory());
       
       this.sortFrontier(scored);
       this.state.frontier.push(...scored);
@@ -343,284 +347,28 @@ export class EnhancedBestFirstSearchAgentWithMemoryBank {
   // ==== ALL REQUIRED METHODS ====
 
   /**
-   * Execute a validation action
+   * Execute a validation action (validator removed) -- acts as a no-op.
    */
-  private async executeValidationAction(inputs: any, task: string): Promise<{ success: boolean; text: string; completionSignal: boolean }> {
-    try {
-      const { trigger, criteria } = inputs;
-      
-      console.log(`[EnhancedBFS-Memory] 🔍 VALIDATION REQUEST DETAILS:`);
-      console.log(`[EnhancedBFS-Memory] - Trigger: ${trigger}`);
-      console.log(`[EnhancedBFS-Memory] - Criteria: ${JSON.stringify(criteria)}`);
-      console.log(`[EnhancedBFS-Memory] - Task: "${task}"`);
-      console.log(`[EnhancedBFS-Memory] - Current iteration: ${this.state.iteration}`);
-      console.log(`[EnhancedBFS-Memory] - Execution history length: ${this.getExecutionHistory().length}`);
-      
-      // Check if validation criteria are met
-      const shouldTrigger = this.shouldTriggerValidation(trigger, criteria);
-      console.log(`[EnhancedBFS-Memory] - Should trigger validation: ${shouldTrigger}`);
-      
-      if (!shouldTrigger) {
-        console.log(`[EnhancedBFS-Memory] ⏭️ Validation skipped: trigger conditions not met`);
-        return {
-          success: true,
-          text: `Validation skipped - criteria not met for trigger: ${trigger}`,
-          completionSignal: false
-        };
-      }
-
-      console.log(`[EnhancedBFS-Memory] ✅ Proceeding with validation...`);
-      
-      // Execute validation
-      const verdict = await this.validator.validate(task, this.getExecutionHistory());
-      
-      console.log(`[EnhancedBFS-Memory] 📊 VALIDATION RESULTS:`);
-      console.log(`[EnhancedBFS-Memory] - Completed: ${verdict.completed}`);
-      console.log(`[EnhancedBFS-Memory] - Confidence: ${verdict.confidence}`);
-      console.log(`[EnhancedBFS-Memory] - Issues: ${JSON.stringify(verdict.issues)}`);
-      console.log(`[EnhancedBFS-Memory] - Suggested actions: ${JSON.stringify(verdict.suggested_next_actions)}`);
-      console.log(`[EnhancedBFS-Memory] - Evidence needed: ${JSON.stringify(verdict.evidence_needed)}`);
-      console.log(`[EnhancedBFS-Memory] - Rationale: ${verdict.rationale}`);
-      
-      // Record validation in task context
-      this.sharedMemory.recordValidation(verdict.confidence);
-      
-      // Add validation result to shared memory
-      this.sharedMemory.addEntry({
-        type: 'validation',
-        content: `Validation triggered by ${trigger}: ${verdict.rationale}`,
-        metadata: {
-          agent: 'main',
-          iteration: this.state.iteration,
-          confidence: verdict.confidence,
-          tool: 'validate',
-          success: verdict.completed
-        },
-        context: {
-          task,
-          availableTools: [],
-          iteration: this.state.iteration,
-          frontierSize: this.state.frontier.length,
-          taskId: this.sharedMemory.getCurrentTaskContext()?.taskId || '',
-          taskHash: this.sharedMemory.getCurrentTaskContext()?.taskHash || ''
-        }
-      });
-
-      const resultText = `Validation completed: ${verdict.completed ? 'TASK COMPLETE' : 'CONTINUE EXPLORATION'} (confidence: ${verdict.confidence})`;
-      console.log(`[EnhancedBFS-Memory] 🎯 Validation result: ${resultText}`);
-
-      return {
-        success: true,
-        text: resultText,
-        completionSignal: verdict.completed
-      };
-    } catch (error) {
-      console.log(`[EnhancedBFS-Memory] ❌ Validation failed: ${error}`);
-      return {
-        success: false,
-        text: `Validation failed: ${error}`,
-        completionSignal: false
-      };
-    }
+  private async executeValidationAction(_inputs: any, task: string): Promise<{ success: boolean; text: string; completionSignal: boolean }> {
+    console.log(`[EnhancedBFS-Memory] Validation step skipped (validator disabled) for task: ${task}`);
+    return { success: true, text: 'Validation disabled', completionSignal: false };
   }
 
   /**
    * Determine if validation should be triggered based on criteria
    */
-  private shouldTriggerValidation(trigger: string, criteria: any): boolean {
-    const taskContext = this.sharedMemory.getCurrentTaskContext();
-    if (!taskContext) {
-      console.log(`[EnhancedBFS-Memory] ❌ No task context available for validation trigger`);
-      return false;
-    }
-
-    console.log(`[EnhancedBFS-Memory] 🔍 Evaluating validation trigger: ${trigger}`);
-    console.log(`[EnhancedBFS-Memory] - Task context: ${taskContext.taskId}`);
-    console.log(`[EnhancedBFS-Memory] - Current iteration: ${this.state.iteration}`);
-    console.log(`[EnhancedBFS-Memory] - Validation count: ${taskContext.validationCount}`);
-
-    switch (trigger) {
-      case 'progress':
-        const progress = this.calculateProgress();
-        const minProgress = criteria.minProgress || 0.5;
-        const progressResult = progress >= minProgress;
-        console.log(`[EnhancedBFS-Memory] 📈 Progress trigger evaluation:`);
-        console.log(`[EnhancedBFS-Memory] - Current progress: ${progress}`);
-        console.log(`[EnhancedBFS-Memory] - Minimum required: ${minProgress}`);
-        console.log(`[EnhancedBFS-Memory] - Result: ${progressResult} (${progress} >= ${minProgress})`);
-        return progressResult;
-        
-      case 'confidence':
-        const confidence = this.calculateConfidence();
-        const minConfidence = criteria.minConfidence || 0.7;
-        const confidenceResult = confidence <= minConfidence;
-        console.log(`[EnhancedBFS-Memory] 🎯 Confidence trigger evaluation:`);
-        console.log(`[EnhancedBFS-Memory] - Current confidence: ${confidence}`);
-        console.log(`[EnhancedBFS-Memory] - Maximum threshold: ${minConfidence}`);
-        console.log(`[EnhancedBFS-Memory] - Result: ${confidenceResult} (${confidence} <= ${minConfidence})`);
-        return confidenceResult;
-        
-      case 'level':
-        const levelThreshold = criteria.levelThreshold || 3;
-        const levelResult = this.state.iteration >= levelThreshold;
-        console.log(`[EnhancedBFS-Memory] 📊 Level trigger evaluation:`);
-        console.log(`[EnhancedBFS-Memory] - Current iteration: ${this.state.iteration}`);
-        console.log(`[EnhancedBFS-Memory] - Required threshold: ${levelThreshold}`);
-        console.log(`[EnhancedBFS-Memory] - Result: ${levelResult} (${this.state.iteration} >= ${levelThreshold})`);
-        return levelResult;
-        
-      case 'manual':
-        console.log(`[EnhancedBFS-Memory] ✋ Manual validation triggered - always proceed`);
-        return true; // Always trigger manual validation
-        
-      case 'adaptive':
-        console.log(`[EnhancedBFS-Memory] 🧠 Adaptive validation trigger - evaluating multiple factors`);
-        return this.shouldTriggerAdaptiveValidation(criteria);
-        
-      default:
-        console.log(`[EnhancedBFS-Memory] ❓ Unknown validation trigger: ${trigger} - skipping`);
-        return false;
-    }
-  }
 
   /**
    * Smart adaptive validation triggering
    */
-  private shouldTriggerAdaptiveValidation(criteria: any): boolean {
-    const taskContext = this.sharedMemory.getCurrentTaskContext();
-    if (!taskContext) return false;
-
-    const progress = this.calculateProgress();
-    const confidence = this.calculateConfidence();
-    const iteration = this.state.iteration;
-    const validationCount = taskContext.validationCount;
-    const timeSinceLastValidation = taskContext.lastValidationTime 
-      ? Date.now() - taskContext.lastValidationTime.getTime()
-      : Infinity;
-
-    // Adaptive criteria
-    const minProgress = criteria.minProgress || 0.3;
-    const maxConfidence = criteria.maxConfidence || 0.8;
-    const minIteration = criteria.minIteration || 2;
-    const maxValidations = criteria.maxValidations || 5;
-    const minTimeBetweenValidations = criteria.minTimeBetweenValidations || 10000; // 10 seconds
-
-    console.log(`[EnhancedBFS-Memory] 🧠 ADAPTIVE VALIDATION EVALUATION:`);
-    console.log(`[EnhancedBFS-Memory] - Current progress: ${progress} (min: ${minProgress})`);
-    console.log(`[EnhancedBFS-Memory] - Current confidence: ${confidence} (max: ${maxConfidence})`);
-    console.log(`[EnhancedBFS-Memory] - Current iteration: ${iteration} (min: ${minIteration})`);
-    console.log(`[EnhancedBFS-Memory] - Validation count: ${validationCount} (max: ${maxValidations})`);
-    console.log(`[EnhancedBFS-Memory] - Time since last validation: ${timeSinceLastValidation}ms (min: ${minTimeBetweenValidations}ms)`);
-
-    // Multiple conditions for adaptive triggering
-    const conditions = [
-      progress >= minProgress, // Progress threshold
-      confidence <= maxConfidence, // Confidence threshold
-      iteration >= minIteration, // Minimum iterations
-      (validationCount || 0) < maxValidations, // Not too many validations
-      timeSinceLastValidation > minTimeBetweenValidations // Time-based throttling
-    ];
-
-    const conditionNames = [
-      'progress >= minProgress',
-      'confidence <= maxConfidence', 
-      'iteration >= minIteration',
-      'validationCount < maxValidations',
-      'timeSinceLastValidation > minTimeBetweenValidations'
-    ];
-
-    console.log(`[EnhancedBFS-Memory] 📋 CONDITION EVALUATION:`);
-    conditions.forEach((condition, index) => {
-      console.log(`[EnhancedBFS-Memory] - ${conditionNames[index]}: ${condition}`);
-    });
-
-    const metConditions = conditions.filter(Boolean).length;
-    const shouldTrigger = metConditions >= 3; // At least 3 conditions met
-    
-    console.log(`[EnhancedBFS-Memory] 🎯 ADAPTIVE RESULT:`);
-    console.log(`[EnhancedBFS-Memory] - Conditions met: ${metConditions}/5`);
-    console.log(`[EnhancedBFS-Memory] - Required: 3+ conditions`);
-    console.log(`[EnhancedBFS-Memory] - Should trigger: ${shouldTrigger}`);
-    
-    return shouldTrigger;
-  }
 
   /**
    * Calculate current progress based on execution history
    */
-  private calculateProgress(): number {
-    const executions = this.getExecutionHistory();
-    const totalExecutions = executions.length;
-    const successfulExecutions = executions.filter(e => e.success).length;
-    
-    if (totalExecutions === 0) return 0;
-    
-    const successRate = successfulExecutions / totalExecutions;
-    
-    // Enhanced progress calculation with multiple factors
-    const hasFileCreation = executions.some(e => 
-      e.tool === 'write_file' && e.success
-    );
-    const hasSynthesis = executions.some(e => 
-      e.tool === 'write_file' && e.success && 
-      (e.params?.filename?.includes('recommendations') || 
-       e.params?.filename?.includes('final-answer') ||
-       e.params?.filename?.includes('summary') ||
-       e.params?.filename?.includes('solution'))
-    );
-    const hasWebResearch = executions.some(e => 
-      e.tool === 'search_web' && e.success
-    );
-    const hasCommandExecution = executions.some(e => 
-      e.tool === 'execute_command' && e.success
-    );
-    const hasValidation = executions.some(e => 
-      e.tool === 'validate' && e.success
-    );
-    
-    // Weighted progress calculation
-    let progress = 0;
-    progress += successRate * 0.2; // Base success rate (20%)
-    if (hasWebResearch) progress += 0.1; // Research phase (10%)
-    if (hasCommandExecution) progress += 0.2; // Implementation phase (20%)
-    if (hasFileCreation) progress += 0.2; // File creation (20%)
-    if (hasSynthesis) progress += 0.2; // Synthesis phase (20%)
-    if (hasValidation) progress += 0.1; // Validation phase (10%)
-    
-    return Math.min(progress, 1.0);
-  }
 
   /**
    * Calculate current confidence based on recent performance
    */
-  private calculateConfidence(): number {
-    const executions = this.getExecutionHistory();
-    if (executions.length === 0) return 0.5;
-    
-    // Recent performance (last 5 executions)
-    const recentExecutions = executions.slice(-5);
-    const recentSuccessRate = recentExecutions.length > 0 
-      ? recentExecutions.filter(e => e.success).length / recentExecutions.length 
-      : 0.5;
-    
-    // Overall performance
-    const overallSuccessRate = executions.filter(e => e.success).length / executions.length;
-    
-    // Task context confidence
-    const taskContext = this.richMemory.getCurrentTaskContext();
-    const validationHistory = taskContext?.confidenceHistory || [];
-    const avgValidationConfidence = validationHistory.length > 0 
-      ? validationHistory.reduce((a: number, b: number) => a + b, 0) / validationHistory.length 
-      : 0.5;
-    
-    // Weighted confidence calculation
-    let confidence = 0;
-    confidence += recentSuccessRate * 0.4; // Recent performance (40%)
-    confidence += overallSuccessRate * 0.3; // Overall performance (30%)
-    confidence += avgValidationConfidence * 0.3; // Validation history (30%)
-    
-    return Math.min(Math.max(confidence, 0), 1);
-  }
 
   private async executePlan(node: PlanNode, task: string, tools: any[]): Promise<ExecutionEntry> {
     const startTime = Date.now();
@@ -837,6 +585,9 @@ ${examples}`);
       const inputsStr = this.extractSection(b, 'INPUTS');
       const reasoning = this.extractSection(b, 'REASONING') || '';
       const scenariosStr = this.extractSection(b, 'SCENARIOS') || '';
+
+      // Skip validator actions; validator has been removed from the loop
+      if (toolName.toLowerCase() === 'validate') continue;
       
       let inputs: any = {};
       try { inputs = inputsStr ? JSON.parse(inputsStr) : {}; } catch {}
@@ -854,14 +605,7 @@ ${examples}`);
           score: 0.5,
           tool: tool || undefined,
           scenarios: this.predictScenariosFromString(tool || '', inputs, scenariosStr),
-          validatorIntegration: {
-            scoreModifier: 0,
-            alignsWithHints: false,
-            confidenceImpact: 0,
-            addressesIssues: false,
-            suggestedImprovements: []
-          },
-          metadata: {
+                    metadata: {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             considerationCount: 0,
@@ -879,7 +623,84 @@ ${examples}`);
     return out;
   }
 
-  private predictScenariosFromString(tool: string, _inputs: any, scenariosStr: string): ToolScenario[] {
+  
+  /**
+   * Generate alternate plan nodes when a tool execution fails.
+   */
+  private generateAlternatePlans(failedNode: PlanNode, errorText: string): PlanNode[] {
+    const alternates: PlanNode[] = [];
+    const tools = new Set(this.mcpClient.getTools().map(t => t.name));
+    const lowerError = (errorText || '').toLowerCase();
+
+    // Example: port in use -> try a different port
+    if (lowerError.includes('address already in use') || lowerError.includes('errno 98')) {
+      const nextPort = (failedNode.inputs?.["command"] && typeof failedNode.inputs["command"] === 'string')
+        ? this.bumpPortInCommand(failedNode.inputs["command"])
+        : null;
+      if (nextPort && tools.has('execute_command')) {
+        alternates.push(this.clonePlan(failedNode, {
+          action: failedNode.action + ' (retry on new port)',
+          inputs: { ...failedNode.inputs, command: nextPort },
+          tool: 'execute_command',
+          score: Math.max(0.5, (failedNode.score || 0.4) + 0.1),
+          depth: failedNode.depth + 1,
+        }));
+      }
+    }
+
+    // Timeouts -> retry with backoff
+    if (lowerError.includes('timeout')) {
+      if (tools.has('execute_command')) {
+        alternates.push(this.clonePlan(failedNode, {
+          action: failedNode.action + ' (retry with backoff)',
+          inputs: failedNode.inputs,
+          tool: failedNode.tool,
+          score: Math.max(0.5, (failedNode.score || 0.4) + 0.05),
+          depth: failedNode.depth + 1,
+        }));
+      }
+    }
+
+    // Missing file -> regenerate
+    if (lowerError.includes('no such file') || lowerError.includes('not found')) {
+      if (tools.has('write_file') && failedNode.tool !== 'write_file') {
+        alternates.push(this.clonePlan(failedNode, {
+          action: 'Create missing file before retry',
+          tool: 'write_file',
+          inputs: { filename: 'index.html', content: '<!-- placeholder -->' },
+          score: 0.55,
+          depth: failedNode.depth + 1,
+        }));
+      }
+    }
+
+    return alternates;
+  }
+
+  private bumpPortInCommand(cmd?: string): string | null {
+    if (!cmd) return null;
+    const match = cmd.match(/(\d{2,5})/);
+    if (!match) return null;
+    const port = parseInt(match[1]!, 10);
+    const newPort = port + 1;
+    return cmd.replace(match[1]!, String(newPort));
+  }
+
+  private clonePlan(node: PlanNode, overrides: Partial<PlanNode>): PlanNode {
+    return {
+      ...node,
+      ...overrides,
+      id: this.generatePlanId(),
+      metadata: {
+        ...node.metadata,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        executed: false,
+        executionAttempts: 0,
+      },
+    };
+  }
+private predictScenariosFromString(tool: string, _inputs: any, scenariosStr: string): ToolScenario[] {
     if (!this.config.scenarioPrediction.enabled || !tool) {
       return [];
     }
@@ -975,7 +796,7 @@ ${examples}`);
           progressImpact: 0.8,
           confidenceImpact: 0.1,
           timeImpact: 0.1,
-          shouldTriggerValidation: false,
+          
           shouldUpdateScoring: true
         };
       case 'PARTIAL_SUCCESS':
@@ -983,7 +804,7 @@ ${examples}`);
           progressImpact: 0.4,
           confidenceImpact: -0.1,
           timeImpact: 0.2,
-          shouldTriggerValidation: true,
+          
           shouldUpdateScoring: true
         };
       default:
@@ -991,7 +812,7 @@ ${examples}`);
           progressImpact: -0.3,
           confidenceImpact: -0.2,
           timeImpact: 0.3,
-          shouldTriggerValidation: true,
+          
           shouldUpdateScoring: true
         };
     }
@@ -1061,185 +882,19 @@ ${examples}`);
     return (diversity + avgProbability) / 2;
   }
 
-  private async scorePlansWithValidatorIntegration(
-    task: string, 
-    plans: PlanNode[]
-  ): Promise<PlanNode[]> {
-    const executionHistory = this.getExecutionHistory();
-    const scored = await this.scorePlans(task, plans, executionHistory);
-    
-    for (const plan of scored) {
-      plan.validatorIntegration = this.calculateValidatorIntegration(plan);
-      plan.score = Math.min(1, plan.score + plan.validatorIntegration.scoreModifier);
-    }
-    
-    return scored;
-  }
 
-  private calculateValidatorIntegration(plan: PlanNode): any {
-    const hints = this.state.validatorState.hints;
-    const lastValidation = this.state.validatorState.lastValidation;
-    const taskContext = this.sharedMemory.getCurrentTaskContext();
-    
-    let scoreModifier = 0;
-    let alignsWithHints = false;
-    let confidenceImpact = 0;
-    let addressesIssues = false;
-    let suggestedImprovements: string[] = [];
-    
-    // Check for repeated validator feedback (stuck in loop)
-    const recentValidations = this.state.validatorState.validationHistory.slice(-5);
-    const isRepeatingFeedback = recentValidations.length >= 3 && 
-      recentValidations.every(v => v.suggested_next_actions?.join(',') === hints.join(','));
-    
-    if (isRepeatingFeedback) {
-      console.log(`[EnhancedBFS-Memory] WARNING: Detected repeated validator feedback, boosting plans that address issues`);
-      // Give significant boost to plans that address the repeated issues
-      scoreModifier += 0.4;
-    }
-    
-    // Enhanced hint alignment with semantic matching
-    if (hints.length > 0) {
-      const actionLower = plan.action.toLowerCase();
-      const toolLower = plan.tool?.toLowerCase() || '';
-      
-      alignsWithHints = hints.some(hint => {
-        const hintLower = hint.toLowerCase();
-        return actionLower.includes(hintLower) || 
-               hintLower.includes(actionLower) ||
-               this.semanticActionMatch(actionLower, hintLower) ||
-               this.toolActionMatch(toolLower, hintLower);
-      });
-      
-      if (alignsWithHints) {
-        scoreModifier += this.config.validator.hintBoost;
-        console.log(`[EnhancedBFS-Memory] Plan aligns with validator hint: ${plan.action} -> ${hints.join(', ')}`);
-      }
-    }
-    
-    // Enhanced issue addressing with context awareness
-    if (lastValidation?.issues) {
-      addressesIssues = lastValidation.issues.some(issue => {
-        const issueLower = issue.toLowerCase();
-        return plan.action.toLowerCase().includes(issueLower) ||
-               plan.reasoning.toLowerCase().includes(issueLower) ||
-               this.semanticIssueMatch(plan, issueLower);
-      });
-      
-      if (addressesIssues) {
-        scoreModifier += 0.2;
-        console.log(`[EnhancedBFS-Memory] Plan addresses validator issue: ${plan.action} -> ${lastValidation.issues.join(', ')}`);
-      }
-    }
-    
-    // Task context-aware scoring
-    if (taskContext) {
-      const progress = this.calculateProgress();
-      const confidence = this.calculateConfidence();
-      
-      // Boost validation actions when appropriate
-      if (plan.tool === 'validate') {
-        if (progress >= 0.5 || confidence <= 0.6) {
-          scoreModifier += 0.3; // Boost validation when progress is good or confidence is low
-          console.log(`[EnhancedBFS-Memory] Boosting validation action: progress=${progress}, confidence=${confidence}`);
-        }
-      }
-      
-      // Boost synthesis actions when we have implementation evidence
-      if (plan.tool === 'write_file' && 
-          (plan.action.toLowerCase().includes('synthesis') || 
-           plan.action.toLowerCase().includes('recommendations') ||
-           plan.action.toLowerCase().includes('final'))) {
-        const hasImplementation = this.getExecutionHistory().some(e => 
-          e.tool === 'write_file' && e.success
-        );
-        if (hasImplementation) {
-          scoreModifier += 0.2;
-          console.log(`[EnhancedBFS-Memory] Boosting synthesis action after implementation`);
-        }
-      }
-    }
-    
-    // Reduce confidence if we're stuck in a validation loop
-    if (isRepeatingFeedback && !alignsWithHints) {
-      confidenceImpact = -0.1;
-    }
-    
-    // Generate improvement suggestions
-    if (!alignsWithHints && hints.length > 0) {
-      suggestedImprovements.push(`Consider incorporating: ${hints.join(', ')}`);
-    }
-    if (!addressesIssues && lastValidation?.issues && lastValidation.issues.length > 0) {
-      suggestedImprovements.push(`Address issues: ${lastValidation.issues.join(', ')}`);
-    }
-    
-    return {
-      scoreModifier,
-      alignsWithHints,
-      confidenceImpact,
-      addressesIssues,
-      suggestedImprovements
-    };
-  }
 
   /**
    * Semantic matching for actions and hints
    */
-  private semanticActionMatch(action: string, hint: string): boolean {
-    const actionWords = action.split(/\s+/);
-    const hintWords = hint.split(/\s+/);
-    
-    // Check for semantic similarity
-    const semanticPairs = [
-      ['create', 'write', 'generate', 'build'],
-      ['search', 'find', 'lookup', 'research'],
-      ['execute', 'run', 'command', 'install'],
-      ['validate', 'check', 'verify', 'test'],
-      ['synthesize', 'summarize', 'recommend', 'final']
-    ];
-    
-    for (const pair of semanticPairs) {
-      const actionMatch = actionWords.some(word => pair.includes(word));
-      const hintMatch = hintWords.some(word => pair.includes(word));
-      if (actionMatch && hintMatch) return true;
-    }
-    
-    return false;
-  }
 
   /**
    * Tool-action matching
    */
-  private toolActionMatch(tool: string, hint: string): boolean {
-    const toolHintMap: Record<string, string[]> = {
-      'write_file': ['create', 'write', 'generate', 'synthesize', 'document'],
-      'search_web': ['search', 'find', 'research', 'lookup'],
-      'execute_command': ['execute', 'run', 'install', 'command'],
-      'validate': ['validate', 'check', 'verify', 'test']
-    };
-    
-    const toolHints = toolHintMap[tool] || [];
-    return toolHints.some(h => hint.includes(h));
-  }
 
   /**
    * Semantic issue matching
    */
-  private semanticIssueMatch(plan: PlanNode, issue: string): boolean {
-    const issueActionMap: Record<string, string[]> = {
-      'no implementation': ['write', 'create', 'implement', 'code'],
-      'no synthesis': ['synthesize', 'recommendations', 'final', 'summary'],
-      'no file creation': ['write_file', 'create', 'generate'],
-      'no final answer': ['final', 'answer', 'summary', 'conclusion']
-    };
-    
-    const actionWords = plan.action.toLowerCase().split(/\s+/);
-    const relevantActions = issueActionMap[issue] || [];
-    
-    return relevantActions.some(action => 
-      actionWords.some(word => word.includes(action))
-    );
-  }
 
   private async scorePlans(task: string, plans: PlanNode[], executionHistory: any[]): Promise<PlanNode[]> {
     const recentActions = executionHistory.slice(-5).map((e: any) => e.content).join(', ');
@@ -1476,125 +1131,27 @@ Respond with ONLY the scores in order, separated by newlines:`;
     return true;
   }
 
-
-
-
   private async isGoalStateReached(task: string): Promise<boolean> {
     try {
-      // Debug: Log current state
       console.log(`[EnhancedBFS-Memory] Checking goal state at iteration ${this.state.iteration}`);
-      
-      // Get execution history from shared memory for the validator
+
       const executionHistory = this.sharedMemory.queryMemories({
-        types: ['execution', 'validation', 'error'],
+        types: ['execution', 'error'],
         maxResults: 20,
         currentTaskOnly: true
       });
-      
+
       console.log(`[EnhancedBFS-Memory] Shared memory entries: ${executionHistory.length}`);
       console.log(`[EnhancedBFS-Memory] Recent executions:`, executionHistory.slice(-3).map((e: any) => e.content));
-      console.log(`[EnhancedBFS-Memory] Validator hints:`, this.state.validatorState.hints);
 
-      // Debug: Log memory bank state
-      const memoryBankStats = this.richMemory.getStats();
-      console.log(`[EnhancedBFS-Memory] Memory Bank Stats:`, memoryBankStats);
-      
-      // Filter for code-related executions and synthesis evidence
-      const codeExecutions = executionHistory.filter((e: any) => 
-        e.content.includes('write_file') || 
-        e.content.includes('execute_command') ||
-        e.content.includes('written successfully') ||
-        e.content.includes('created') ||
-        e.content.includes('executed') ||
-        e.content.includes('synthesize') ||
-        e.content.includes('recommendations') ||
-        e.content.includes('final-answer') ||
-        e.content.includes('comprehensive')
-      );
-      
-      // Create synthetic entries for validator
-      const syntheticEntries: ExecutionEntry[] = codeExecutions.map((entry: any, index: number) => ({
-        id: `synthetic_${index}`,
-        planId: 'synthetic',
-        thought: entry.content,
-        step: entry.content,
-        observation: entry.content,
-        success: entry.metadata?.success !== false,
-        tool: entry.metadata?.tool || 'unknown',
-        executionTime: 0
-      }));
-      
-      const verdict = await this.validator.validate(task, syntheticEntries);
-      
-      // Debug: Log validator verdict
-      console.log(`[EnhancedBFS-Memory] Validator verdict:`, {
-        completed: verdict.completed,
-        confidence: verdict.confidence,
-        issues: verdict.issues,
-        suggested_next_actions: verdict.suggested_next_actions,
-        evidence_needed: verdict.evidence_needed,
-        rationale: verdict.rationale
-      });
-      
-      // Store validator feedback in shared memory
-      this.sharedMemory.addEntry({
-        type: 'validation',
-        content: `Validator: completed=${verdict.completed}, confidence=${verdict.confidence}, issues=${verdict.issues?.join(', ') || 'none'}`,
-        metadata: {
-          agent: 'validator',
-          iteration: this.state.iteration,
-          confidence: verdict.confidence,
-          success: verdict.completed
-        },
-        context: {
-          task,
-          availableTools: this.mcpClient.getTools().map(t => t.name),
-          iteration: this.state.iteration,
-          frontierSize: this.state.frontier.length,
-          taskId: this.sharedMemory.getCurrentTaskContext()?.taskId || '',
-          taskHash: this.sharedMemory.getCurrentTaskContext()?.taskHash || ''
-        }
-      });
-
-      // Update validator state with feedback
-      if (verdict.suggested_next_actions) {
-        this.state.validatorState.hints = verdict.suggested_next_actions;
-      }
-
-      // Log validation in memory bank for pattern learning
-      await this.richMemory.updateMemoryBank({
-        type: 'progress_summary',
-        content: `Validation: ${verdict.completed ? 'COMPLETE' : 'INCOMPLETE'} (confidence: ${verdict.confidence.toFixed(2)})`,
-        metadata: {
-          timestamp: new Date(),
-          agent: 'validator',
-          iteration: this.state.iteration,
-          confidence: verdict.confidence,
-          tags: verdict.completed ? ['validation-complete'] : ['validation-incomplete']
-        },
-        context: {
-          task,
-          toolsUsed: ['validator'],
-          successRate: verdict.confidence,
-          executionTime: 0
-        }
-      });
-
-      // Use enhanced memory querying to get proper evidence
       const taskCompletionProof = this.sharedMemory.getTaskCompletionProof();
-      
-      // Task-specific completion criteria
       const taskType = this.determineTaskType(task);
-      const taskSpecificCriteria = this.evaluateTaskSpecificCriteria(taskType, taskCompletionProof, verdict);
-      
-      // Enhanced completion criteria - TRUST validator as authoritative source
+      const taskSpecificCriteria = this.evaluateTaskSpecificCriteria(taskType, taskCompletionProof);
+
       const hasImplementation = taskCompletionProof.hasImplementation;
-      const validatorApproves = verdict.completed && verdict.confidence >= this.config.validator.minConfidence;
-      
-      // Trust validator decision - it has access to all evidence and context
-      const isComplete = validatorApproves;
-      
-      // Log synthesis detection using enhanced evidence
+      const hasFilesAndSynthesis = taskCompletionProof.hasFileCreation && taskCompletionProof.hasSynthesis;
+      const isComplete = taskSpecificCriteria.meetsRequirements || hasImplementation || hasFilesAndSynthesis;
+
       if (taskCompletionProof.hasSynthesis) {
         console.log(`[EnhancedBFS-Memory] ✅ Synthesis evidence detected (${taskCompletionProof.synthesisEntries.length} entries)`);
       }
@@ -1604,75 +1161,16 @@ Respond with ONLY the scores in order, separated by newlines:`;
       if (hasImplementation) {
         console.log(`[EnhancedBFS-Memory] ✅ Implementation evidence detected (files + synthesis)`);
       }
-      
-      // Log completion decision
+
       console.log(`[EnhancedBFS-Memory] Completion Analysis:`);
       console.log(`[EnhancedBFS-Memory] - Task type: ${taskType}`);
-      console.log(`[EnhancedBFS-Memory] - Task-specific criteria: ${taskSpecificCriteria.meetsRequirements} (${taskSpecificCriteria.reason}) [INFO ONLY]`);
-      console.log(`[EnhancedBFS-Memory] - Validator approves: ${validatorApproves} (confidence: ${verdict.confidence}, threshold: ${this.config.validator.minConfidence}) [AUTHORITATIVE]`);
+      console.log(`[EnhancedBFS-Memory] - Task-specific criteria: ${taskSpecificCriteria.meetsRequirements} (${taskSpecificCriteria.reason})`);
       console.log(`[EnhancedBFS-Memory] - Has implementation: ${hasImplementation}`);
-      console.log(`[EnhancedBFS-Memory] - Final decision: ${isComplete ? 'COMPLETE' : 'INCOMPLETE'} (based on validator)`);
-      
-      // If not complete, provide feedback to guide next actions
-      if (!isComplete && verdict.suggested_next_actions) {
-        console.log(`[EnhancedBFS-Memory] Validator feedback: ${verdict.suggested_next_actions.join(', ')}`);
-        
-        // Check if we're stuck in a loop
-        const recentHints = this.state.validatorState.hints;
-        const isRepeating = verdict.suggested_next_actions.every(action => 
-          recentHints.includes(action)
-        );
-        
-      // Store validation history for loop detection
-      this.state.validatorState.validationHistory.push({
-        completed: verdict.completed,
-        confidence: verdict.confidence,
-        issues: verdict.issues || [],
-        suggested_next_actions: verdict.suggested_next_actions || [],
-        evidence_needed: verdict.evidence_needed || [],
-        rationale: verdict.rationale || '',
-        timestamp: Date.now(),
-        iteration: this.state.iteration
-      });
-        
-        // Keep only recent history
-        if (this.state.validatorState.validationHistory.length > 10) {
-          this.state.validatorState.validationHistory.shift();
-        }
-        
-        if (isRepeating && this.state.iteration > 10) {
-          console.log(`[EnhancedBFS-Memory] WARNING: Validator giving repeated feedback, may be stuck in loop`);
-          
-          // Check if we've actually created files
-          const fileCreations = executionHistory.filter((e: any) => 
-            e.content.includes('written successfully') || e.content.includes('created')
-          );
-          
-          if (fileCreations.length > 0 && this.state.iteration > 15) {
-            console.log(`[EnhancedBFS-Memory] Force completion: Found ${fileCreations.length} file creations despite validator feedback`);
-            return true; // Force completion
-          }
-          
-          // If we've tried many iterations but validator keeps saying the same thing, force completion
-          if (this.state.iteration > 20) {
-            console.log(`[EnhancedBFS-Memory] Force completion: Too many iterations (${this.state.iteration}) with repeated feedback`);
-            return true;
-          }
-        }
-      }
-      
+      console.log(`[EnhancedBFS-Memory] - Final decision: ${isComplete ? 'COMPLETE' : 'INCOMPLETE'} (evidence-based)`);
+
       return isComplete;
     } catch (error) {
-      console.error('[EnhancedBFS-Memory] Goal state detection failed:', error);
-      
-      // Log validation error in memory bank
-      await this.richMemory.logError(
-        'Validation failed',
-        `Error: ${error}`,
-        this.state.iteration,
-        ['validator']
-      );
-      
+      console.log(`[EnhancedBFS-Memory] Error in goal state check: ${error}`);
       return false;
     }
   }
@@ -1704,35 +1202,34 @@ Respond with ONLY the scores in order, separated by newlines:`;
    */
   private evaluateTaskSpecificCriteria(
     taskType: string, 
-    taskCompletionProof: any, 
-    verdict: any
+    taskCompletionProof: any
   ): { meetsRequirements: boolean; reason: string } {
     
     switch (taskType) {
       case 'coding_problem':
-        return this.evaluateCodingProblemCriteria(taskCompletionProof, verdict);
+        return this.evaluateCodingProblemCriteria(taskCompletionProof);
       
       case 'web_development':
-        return this.evaluateWebDevelopmentCriteria(taskCompletionProof, verdict);
+        return this.evaluateWebDevelopmentCriteria(taskCompletionProof);
       
       case 'research_analysis':
-        return this.evaluateResearchAnalysisCriteria(taskCompletionProof, verdict);
+        return this.evaluateResearchAnalysisCriteria(taskCompletionProof);
       
       case 'system_setup':
-        return this.evaluateSystemSetupCriteria(taskCompletionProof, verdict);
+        return this.evaluateSystemSetupCriteria(taskCompletionProof);
       
       case 'documentation':
-        return this.evaluateDocumentationCriteria(taskCompletionProof, verdict);
+        return this.evaluateDocumentationCriteria(taskCompletionProof);
       
       default:
-        return this.evaluateGeneralCriteria(taskCompletionProof, verdict);
+        return this.evaluateGeneralCriteria(taskCompletionProof);
     }
   }
 
   /**
    * Coding problem completion criteria
    */
-  private evaluateCodingProblemCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateCodingProblemCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasCode = taskCompletionProof.hasFileCreation && 
       taskCompletionProof.fileCreationEntries.some((entry: any) => 
         entry.content.includes('.py') || 
@@ -1762,7 +1259,7 @@ Respond with ONLY the scores in order, separated by newlines:`;
   /**
    * Web development completion criteria
    */
-  private evaluateWebDevelopmentCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateWebDevelopmentCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasWebFiles = taskCompletionProof.hasFileCreation && 
       taskCompletionProof.fileCreationEntries.some((entry: any) => 
         entry.content.includes('.html') || 
@@ -1786,7 +1283,7 @@ Respond with ONLY the scores in order, separated by newlines:`;
   /**
    * Research analysis completion criteria
    */
-  private evaluateResearchAnalysisCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateResearchAnalysisCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasResearch = taskCompletionProof.hasFileCreation && 
       taskCompletionProof.fileCreationEntries.some((entry: any) => 
         entry.content.includes('search') || 
@@ -1808,7 +1305,7 @@ Respond with ONLY the scores in order, separated by newlines:`;
   /**
    * System setup completion criteria
    */
-  private evaluateSystemSetupCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateSystemSetupCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasCommands = taskCompletionProof.hasImplementation;
     const hasDocumentation = taskCompletionProof.hasSynthesis;
     
@@ -1824,7 +1321,7 @@ Respond with ONLY the scores in order, separated by newlines:`;
   /**
    * Documentation completion criteria
    */
-  private evaluateDocumentationCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateDocumentationCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasDocumentation = taskCompletionProof.hasFileCreation && 
       taskCompletionProof.fileCreationEntries.some((entry: any) => 
         entry.content.includes('.md') || 
@@ -1843,7 +1340,7 @@ Respond with ONLY the scores in order, separated by newlines:`;
   /**
    * General task completion criteria
    */
-  private evaluateGeneralCriteria(taskCompletionProof: any, _verdict: any): { meetsRequirements: boolean; reason: string } {
+  private evaluateGeneralCriteria(taskCompletionProof: any): { meetsRequirements: boolean; reason: string } {
     const hasImplementation = taskCompletionProof.hasImplementation;
     const hasSynthesis = taskCompletionProof.hasSynthesis;
     const hasFileCreation = taskCompletionProof.hasFileCreation;
